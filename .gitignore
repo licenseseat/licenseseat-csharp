@@ -89,3 +89,5 @@ BenchmarkDotNet.Artifacts/
 
 # Project-specific
 *.orig
+
+.aux
