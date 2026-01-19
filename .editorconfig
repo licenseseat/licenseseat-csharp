@@ -1,0 +1,23 @@
+# EditorConfig helps maintain consistent coding styles
+# https://editorconfig.org
+
+root = true
+
+[*]
+indent_style = space
+indent_size = 4
+end_of_line = lf
+charset = utf-8
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+[*.cs]
+# Prefer file-scoped namespaces
+csharp_style_namespace_declarations = file_scoped:warning
+
+# Prefer 'var' when type is apparent
+csharp_style_var_when_type_is_apparent = true:suggestion
+
+# Allow underscores in test method names
+[*Tests.cs]
+dotnet_diagnostic.CA1707.severity = none
