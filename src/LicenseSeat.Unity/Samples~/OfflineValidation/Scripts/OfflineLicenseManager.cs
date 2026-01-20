@@ -53,9 +53,9 @@ namespace LicenseSeat.Unity.Samples
             }
 
             // Subscribe to events
-            licenseSeatManager.Client.Events.On(LicenseSeatEvents.LicenseValidated, OnLicenseValidated);
+            licenseSeatManager.Client.Events.On(LicenseSeatEvents.ValidationSuccess, OnLicenseValidated);
             licenseSeatManager.Client.Events.On(LicenseSeatEvents.ValidationFailed, OnValidationFailed);
-            licenseSeatManager.Client.Events.On(LicenseSeatEvents.OfflineFallbackUsed, OnOfflineFallbackUsed);
+            licenseSeatManager.Client.Events.On(LicenseSeatEvents.ValidationOfflineSuccess, OnOfflineFallbackUsed);
 
             // Initial status update
             UpdateStatus();
@@ -68,9 +68,9 @@ namespace LicenseSeat.Unity.Samples
         {
             if (licenseSeatManager?.Client != null)
             {
-                licenseSeatManager.Client.Events.Off(LicenseSeatEvents.LicenseValidated, OnLicenseValidated);
+                licenseSeatManager.Client.Events.Off(LicenseSeatEvents.ValidationSuccess, OnLicenseValidated);
                 licenseSeatManager.Client.Events.Off(LicenseSeatEvents.ValidationFailed, OnValidationFailed);
-                licenseSeatManager.Client.Events.Off(LicenseSeatEvents.OfflineFallbackUsed, OnOfflineFallbackUsed);
+                licenseSeatManager.Client.Events.Off(LicenseSeatEvents.ValidationOfflineSuccess, OnOfflineFallbackUsed);
             }
         }
 

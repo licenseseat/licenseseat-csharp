@@ -30,7 +30,7 @@ https://github.com/licenseseat/licenseseat-csharp.git?path=src/LicenseSeat.Unity
 To lock to a specific version, append the version tag:
 
 ```
-https://github.com/licenseseat/licenseseat-csharp.git?path=src/LicenseSeat.Unity#v1.0.0
+https://github.com/licenseseat/licenseseat-csharp.git?path=src/LicenseSeat.Unity#v0.2.0
 ```
 
 ### Method 2: manifest.json
@@ -65,7 +65,7 @@ Or add the scoped registry to your `manifest.json`:
     }
   ],
   "dependencies": {
-    "com.licenseseat.sdk": "1.0.0"
+    "com.licenseseat.sdk": "0.2.0"
   }
 }
 ```
@@ -118,7 +118,7 @@ See the [Quick Start Guide](quickstart.md) for next steps.
 Change the version tag in the URL:
 
 ```json
-"com.licenseseat.sdk": "https://github.com/licenseseat/licenseseat-csharp.git?path=src/LicenseSeat.Unity#v1.1.0"
+"com.licenseseat.sdk": "https://github.com/licenseseat/licenseseat-csharp.git?path=src/LicenseSeat.Unity#v0.3.0"
 ```
 
 ## Uninstalling

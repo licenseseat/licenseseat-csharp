@@ -63,7 +63,7 @@ public class LicenseController : MonoBehaviour
         _manager = FindObjectOfType<LicenseSeatManager>();
 
         // Subscribe to events
-        _manager.Client.Events.On(LicenseSeatEvents.LicenseActivated, OnLicenseActivated);
+        _manager.Client.Events.On(LicenseSeatEvents.ActivationSuccess, OnActivationSuccess);
         _manager.Client.Events.On(LicenseSeatEvents.ValidationFailed, OnValidationFailed);
     }
 
@@ -84,7 +84,7 @@ public class LicenseController : MonoBehaviour
         Debug.Log($"License activated: {license.LicenseKey}");
     }
 
-    private void OnLicenseActivated(object data) => Debug.Log("License activated!");
+    private void OnActivationSuccess(object data) => Debug.Log("License activated!");
     private void OnValidationFailed(object data) => Debug.LogWarning("Validation failed");
 }
 ```

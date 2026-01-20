@@ -15,7 +15,7 @@ The LicenseSeat SDK supports offline license validation through:
 1. **Configure Offline Settings**
 
    In your `LicenseSeatSettings` ScriptableObject:
-   - Set **Offline Fallback Mode** to `CacheFirst` or `CacheFallback`
+   - Set **Offline Fallback Mode** to `NetworkOnly` or `Always`
    - Set **Max Offline Days** to your desired grace period (e.g., 7 days)
 
 2. **Create the Scene**
@@ -38,23 +38,22 @@ The LicenseSeat SDK supports offline license validation through:
 var options = new LicenseSeatClientOptions
 {
     ApiKey = "your-api-key",
-    OfflineFallbackMode = OfflineFallbackMode.CacheFallback,
+    OfflineFallbackMode = OfflineFallbackMode.Always,
     MaxOfflineDays = 7
 };
 ```
 
 | Mode | Description |
 |------|-------------|
-| `NetworkOnly` | Always require network; fail if offline |
-| `CacheFirst` | Try cache first, then network |
-| `CacheFallback` | Try network first, fall back to cache |
-| `CacheOnly` | Never use network (for testing) |
+| `Disabled` | No offline fallback; always require network |
+| `NetworkOnly` | Try network first, fall back to cache on network failure |
+| `Always` | Always use offline validation when cache is available |
 
 ## Events
 
 ```csharp
-// Listen for offline fallback usage
-client.Events.On(LicenseSeatEvents.OfflineFallbackUsed, data => {
+// Listen for offline validation success
+client.Events.On(LicenseSeatEvents.ValidationOfflineSuccess, data => {
     Debug.Log("Using cached license - device is offline");
 });
 ```

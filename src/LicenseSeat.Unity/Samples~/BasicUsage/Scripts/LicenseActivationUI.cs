@@ -48,8 +48,8 @@ namespace LicenseSeat.Unity.Samples
             }
 
             // Subscribe to license events
-            licenseSeatManager.Client.Events.On(LicenseSeatEvents.LicenseActivated, OnLicenseActivated);
-            licenseSeatManager.Client.Events.On(LicenseSeatEvents.LicenseValidated, OnLicenseValidated);
+            licenseSeatManager.Client.Events.On(LicenseSeatEvents.ActivationSuccess, OnLicenseActivated);
+            licenseSeatManager.Client.Events.On(LicenseSeatEvents.ValidationSuccess, OnLicenseValidated);
             licenseSeatManager.Client.Events.On(LicenseSeatEvents.ValidationFailed, OnValidationFailed);
 
             // Check if already licensed
@@ -60,8 +60,8 @@ namespace LicenseSeat.Unity.Samples
         {
             if (licenseSeatManager?.Client != null)
             {
-                licenseSeatManager.Client.Events.Off(LicenseSeatEvents.LicenseActivated, OnLicenseActivated);
-                licenseSeatManager.Client.Events.Off(LicenseSeatEvents.LicenseValidated, OnLicenseValidated);
+                licenseSeatManager.Client.Events.Off(LicenseSeatEvents.ActivationSuccess, OnLicenseActivated);
+                licenseSeatManager.Client.Events.Off(LicenseSeatEvents.ValidationSuccess, OnLicenseValidated);
                 licenseSeatManager.Client.Events.Off(LicenseSeatEvents.ValidationFailed, OnValidationFailed);
             }
         }

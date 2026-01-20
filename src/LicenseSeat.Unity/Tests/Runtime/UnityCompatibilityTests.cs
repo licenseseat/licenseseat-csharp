@@ -373,7 +373,7 @@ namespace LicenseSeat.Unity.Tests.Runtime
             Assert.That(LicenseSeatEvents.ActivationError, Is.EqualTo("activation:error"));
             Assert.That(LicenseSeatEvents.ValidationSuccess, Is.EqualTo("validation:success"));
             Assert.That(LicenseSeatEvents.ValidationFailed, Is.EqualTo("validation:failed"));
-            Assert.That(LicenseSeatEvents.OfflineValidationSuccess, Is.EqualTo("validation:offline-success"));
+            Assert.That(LicenseSeatEvents.ValidationOfflineSuccess, Is.EqualTo("validation:offline-success"));
             Assert.That(LicenseSeatEvents.NetworkOnline, Is.EqualTo("network:online"));
             Assert.That(LicenseSeatEvents.NetworkOffline, Is.EqualTo("network:offline"));
         }

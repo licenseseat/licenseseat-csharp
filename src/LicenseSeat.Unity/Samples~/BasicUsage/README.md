@@ -36,7 +36,7 @@ StartCoroutine(licenseSeatManager.ActivateCoroutine(licenseKey, OnActivationComp
 StartCoroutine(licenseSeatManager.ValidateCoroutine(licenseKey, OnValidationComplete));
 
 // Subscribe to events
-licenseSeatManager.Client.Events.On(LicenseSeatEvents.LicenseActivated, OnLicenseActivated);
+licenseSeatManager.Client.Events.On(LicenseSeatEvents.ActivationSuccess, OnActivationSuccess);
 licenseSeatManager.Client.Events.On(LicenseSeatEvents.ValidationFailed, OnValidationFailed);
 ```
 

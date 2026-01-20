@@ -50,7 +50,7 @@ public class MyLicenseController : MonoBehaviour
         _manager = FindObjectOfType<LicenseSeatManager>();
 
         // Subscribe to events
-        _manager.Client.Events.On(LicenseSeatEvents.LicenseActivated, OnActivated);
+        _manager.Client.Events.On(LicenseSeatEvents.ActivationSuccess, OnActivated);
         _manager.Client.Events.On(LicenseSeatEvents.ValidationFailed, OnFailed);
     }
 
