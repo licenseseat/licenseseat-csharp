@@ -184,7 +184,7 @@ Enable detailed logging to diagnose issues:
 
 If you can't resolve your issue:
 
-1. **Check Documentation**: https://docs.licenseseat.com/sdk/unity
+1. **Check Documentation**: https://licenseseat.com/docs/sdk/unity
 2. **Search Issues**: https://github.com/licenseseat/licenseseat-csharp/issues
 3. **Create Issue**: Include:
    - Unity version
@@ -192,4 +192,3 @@ If you can't resolve your issue:
    - Scripting backend (Mono/IL2CPP)
    - Full error message
    - Steps to reproduce
-4. **Contact Support**: support@licenseseat.com

@@ -126,7 +126,7 @@ namespace LicenseSeat.Unity.Editor
                 GUILayout.FlexibleSpace();
                 if (GUILayout.Button("View Documentation", GUILayout.Width(150)))
                 {
-                    Application.OpenURL("https://docs.licenseseat.com/sdk/unity");
+                    Application.OpenURL("https://licenseseat.com/docs/sdk/unity");
                 }
                 GUILayout.FlexibleSpace();
             }

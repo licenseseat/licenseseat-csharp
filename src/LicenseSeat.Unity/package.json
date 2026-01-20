@@ -6,7 +6,7 @@
   "unity": "2021.3",
   "unityRelease": "0f1",
   "license": "MIT",
-  "documentationUrl": "https://docs.licenseseat.com/sdk/unity",
+  "documentationUrl": "https://licenseseat.com/docs/sdk/unity",
   "changelogUrl": "https://github.com/licenseseat/licenseseat-csharp/blob/main/src/LicenseSeat.Unity/CHANGELOG.md",
   "licensesUrl": "https://github.com/licenseseat/licenseseat-csharp/blob/main/LICENSE",
   "dependencies": {},
@@ -21,7 +21,7 @@
   ],
   "author": {
     "name": "LicenseSeat",
-    "email": "support@licenseseat.com",
+    "email": "csharp@licenseseat.com",
     "url": "https://licenseseat.com"
   },
   "repository": {

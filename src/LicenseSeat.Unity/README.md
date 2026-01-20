@@ -161,9 +161,8 @@ The Unity package contains copies of the core C# SDK source files in `Runtime/Co
 
 ## Support
 
-- Documentation: https://docs.licenseseat.com/sdk/unity
+- Documentation: https://licenseseat.com/docs/sdk/unity
 - Issues: https://github.com/licenseseat/licenseseat-csharp/issues
-- Email: support@licenseseat.com
 
 ## License
 

@@ -57,4 +57,4 @@ licenseSeatManager.Client.Events.On(LicenseSeatEvents.ValidationFailed, OnValida
 ## Next Steps
 
 - See the **OfflineValidation** sample for handling offline scenarios
-- Refer to the [documentation](https://docs.licenseseat.com/sdk/unity) for advanced usage
+- Refer to the [documentation](https://licenseseat.com/docs/sdk/unity) for advanced usage

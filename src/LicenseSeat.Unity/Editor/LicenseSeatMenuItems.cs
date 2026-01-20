@@ -17,7 +17,7 @@ namespace LicenseSeat.Editor
         [MenuItem(MenuPrefix + "Documentation", priority = 100)]
         public static void OpenDocumentation()
         {
-            Application.OpenURL("https://docs.licenseseat.com/sdk/unity");
+            Application.OpenURL("https://licenseseat.com/docs/sdk/unity");
         }
 
         [MenuItem(MenuPrefix + "Dashboard", priority = 101)]

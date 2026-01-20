@@ -230,7 +230,7 @@ namespace LicenseSeat.Unity.Editor
 
                 if (GUILayout.Button("Documentation"))
                 {
-                    Application.OpenURL("https://docs.licenseseat.com/sdk/unity");
+                    Application.OpenURL("https://licenseseat.com/docs/sdk/unity");
                 }
             }
         }
