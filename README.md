@@ -211,6 +211,53 @@ dotnet test --collect:"XPlat Code Coverage"
 dotnet pack --configuration Release --output ./artifacts
 ```
 
+### Releasing a New Version
+
+Releases are automated via GitHub Actions. To publish a new version to NuGet:
+
+1. **Update the version** in `src/LicenseSeat/LicenseSeat.csproj`:
+   ```xml
+   <Version>1.0.0</Version>
+   ```
+
+2. **Create a GitHub Release**:
+   ```bash
+   # Create and push a tag
+   git tag v1.0.0
+   git push origin v1.0.0
+   ```
+
+   Then go to [GitHub Releases](https://github.com/licenseseat/licenseseat-csharp/releases) and create a new release from the tag.
+
+   **Or use the GitHub CLI:**
+   ```bash
+   gh release create v1.0.0 --title "v1.0.0" --notes "Release notes here"
+   ```
+
+3. **Automatic publishing**: The release workflow will automatically:
+   - Build and test the package
+   - Create the NuGet package with the release version
+   - Publish to [NuGet.org](https://www.nuget.org/packages/LicenseSeat/)
+   - Attach the `.nupkg` file to the GitHub release
+
+#### Version Guidelines
+
+- **Major** (`X.0.0`): Breaking API changes
+- **Minor** (`0.X.0`): New features, backward compatible
+- **Patch** (`0.0.X`): Bug fixes, backward compatible
+- **Prerelease** (`1.0.0-beta.1`): Preview versions
+
+#### Manual Release (if needed)
+
+You can also trigger a release manually from the Actions tab:
+
+1. Go to **Actions** → **Release** workflow
+2. Click **Run workflow**
+3. Enter the version number (e.g., `1.0.0`)
+4. Check "Is this a prerelease?" if applicable
+
+> **Note:** Requires `NUGET_API_KEY` secret to be configured in repository settings.
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
