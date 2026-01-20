@@ -10,7 +10,10 @@
       "Bash(dotnet pack:*)",
       "Bash(unzip:*)",
       "WebSearch",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh pr checks:*)",
+      "Bash(gh pr merge:*)"
     ]
   }
 }
