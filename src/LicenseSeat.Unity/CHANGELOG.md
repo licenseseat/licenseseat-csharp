@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Pure C# implementation with no native dependencies
 - Support for all Unity platforms (Windows, macOS, Linux, Android, iOS, WebGL)
 - IL2CPP compatibility with comprehensive `link.xml`
+- `LicenseSeatLinkerProcessor` - automatic link.xml injection for UPM packages via `IUnityLinkerProcessor`
 - `UnityWebRequestAdapter` for WebGL and cross-platform HTTP
 - `LicenseSeatManager` MonoBehaviour for easy integration
 - `LicenseSeatSettings` ScriptableObject for configuration
