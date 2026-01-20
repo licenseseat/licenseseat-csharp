@@ -56,6 +56,79 @@ jobs:
           retention-days: 7
 
   # ============================================================
+  # Unity Package Sync Validation
+  # ============================================================
+  unity-sync:
+    name: Unity Package Sync
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Validate Unity Core files are in sync
+        run: ./scripts/validate-unity-sync.sh
+
+  # ============================================================
+  # Unity Package Structure Validation
+  # ============================================================
+  unity-package:
+    name: Unity Package Validation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Validate Unity package structure for UPM
+        run: ./scripts/validate-unity-package.sh
+
+      - name: Verify Git URL syntax
+        run: |
+          echo "## Git URL Verification" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Check that package.json exists at the expected path
+          if [ -f "src/LicenseSeat.Unity/package.json" ]; then
+            echo "✅ package.json found at expected path" >> $GITHUB_STEP_SUMMARY
+
+            # Extract and display the installation URL
+            PKG_NAME=$(grep '"name"' src/LicenseSeat.Unity/package.json | head -1 | sed 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
+            PKG_VERSION=$(grep '"version"' src/LicenseSeat.Unity/package.json | head -1 | sed 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
+
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Installation URLs" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Latest:**" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "https://github.com/${{ github.repository }}.git?path=src/LicenseSeat.Unity" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Version $PKG_VERSION:**" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "https://github.com/${{ github.repository }}.git?path=src/LicenseSeat.Unity#v$PKG_VERSION" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ package.json NOT found at expected path" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+
+      - name: Check version consistency
+        run: |
+          # Extract versions from different sources
+          PKG_VERSION=$(grep '"version"' src/LicenseSeat.Unity/package.json | head -1 | sed 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
+          CHANGELOG_VERSION=$(grep '^\## \[' src/LicenseSeat.Unity/CHANGELOG.md | head -1 | sed 's/.*\[\([0-9.]*\)\].*/\1/')
+
+          echo "package.json version: $PKG_VERSION"
+          echo "CHANGELOG version: $CHANGELOG_VERSION"
+
+          if [ "$PKG_VERSION" = "$CHANGELOG_VERSION" ]; then
+            echo "✅ Versions are consistent"
+          else
+            echo "⚠️ Version mismatch between package.json ($PKG_VERSION) and CHANGELOG ($CHANGELOG_VERSION)"
+          fi
+
+  # ============================================================
   # Code Quality
   # ============================================================
   quality:

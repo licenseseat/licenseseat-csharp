@@ -1,0 +1,43 @@
+{
+  "name": "com.licenseseat.sdk",
+  "version": "0.2.0",
+  "displayName": "LicenseSeat SDK",
+  "description": "Pure C# licensing SDK for Unity. Provides seamless license activation, validation, and entitlement checking across all Unity platforms including WebGL, iOS, and Android.",
+  "unity": "2021.3",
+  "unityRelease": "0f1",
+  "license": "MIT",
+  "documentationUrl": "https://licenseseat.com/docs/sdk/unity",
+  "changelogUrl": "https://github.com/licenseseat/licenseseat-csharp/blob/main/src/LicenseSeat.Unity/CHANGELOG.md",
+  "licensesUrl": "https://github.com/licenseseat/licenseseat-csharp/blob/main/LICENSE",
+  "dependencies": {},
+  "keywords": [
+    "licensing",
+    "license",
+    "activation",
+    "validation",
+    "entitlements",
+    "drm",
+    "software-licensing"
+  ],
+  "author": {
+    "name": "LicenseSeat",
+    "email": "csharp@licenseseat.com",
+    "url": "https://licenseseat.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/licenseseat/licenseseat-csharp.git"
+  },
+  "samples": [
+    {
+      "displayName": "Basic Usage",
+      "description": "Simple license activation and validation example",
+      "path": "Samples~/BasicUsage"
+    },
+    {
+      "displayName": "Offline Validation",
+      "description": "Example demonstrating offline license validation with cached data",
+      "path": "Samples~/OfflineValidation"
+    }
+  ]
+}

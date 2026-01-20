@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  IL2CPP Link Configuration for LicenseSeat Unity SDK
+
+  This file prevents code stripping of types required at runtime.
+  Without this, IL2CPP builds (iOS, Android, WebGL) may fail with
+  runtime errors due to missing types.
+
+  See: https://docs.unity3d.com/Manual/ManagedCodeStripping.html
+-->
+<linker>
+  <!-- Preserve all LicenseSeat SDK types -->
+  <assembly fullname="LicenseSeat.Unity.Runtime" preserve="all">
+    <type fullname="LicenseSeat.*" preserve="all"/>
+  </assembly>
+
+  <!-- System.Text.Json serialization support -->
+  <assembly fullname="System.Text.Json" preserve="all">
+    <type fullname="System.Text.Json.*" preserve="all"/>
+  </assembly>
+
+  <!-- Required for JSON serialization with generics -->
+  <assembly fullname="System.Text.Json">
+    <type fullname="System.Text.Json.Serialization.Metadata.JsonTypeInfo`1" preserve="all"/>
+    <type fullname="System.Text.Json.Serialization.JsonConverter`1" preserve="all"/>
+  </assembly>
+
+  <!-- Preserve reflection metadata for JSON deserialization -->
+  <assembly fullname="System.Runtime">
+    <type fullname="System.Reflection.*" preserve="all"/>
+  </assembly>
+
+  <!-- BouncyCastle crypto library (if used) -->
+  <assembly fullname="BouncyCastle.Cryptography" preserve="all">
+    <type fullname="Org.BouncyCastle.*" preserve="all"/>
+  </assembly>
+
+  <!-- Required for HTTP operations -->
+  <assembly fullname="System.Net.Http">
+    <type fullname="System.Net.Http.*" preserve="all"/>
+  </assembly>
+
+  <!-- Required for async/await -->
+  <assembly fullname="System.Threading.Tasks">
+    <type fullname="System.Threading.Tasks.*" preserve="all"/>
+  </assembly>
+
+  <!-- Preserve generic types used in SDK -->
+  <assembly fullname="mscorlib">
+    <type fullname="System.Collections.Generic.List`1" preserve="all"/>
+    <type fullname="System.Collections.Generic.Dictionary`2" preserve="all"/>
+    <type fullname="System.Nullable`1" preserve="all"/>
+  </assembly>
+
+  <!-- LicenseSeat model types - ensure all properties preserved for serialization -->
+  <assembly fullname="LicenseSeat.Unity.Runtime">
+    <!-- Core types -->
+    <type fullname="LicenseSeat.License" preserve="all" serialized="true"/>
+    <type fullname="LicenseSeat.ValidationResult" preserve="all" serialized="true"/>
+    <type fullname="LicenseSeat.ActivationResult" preserve="all" serialized="true"/>
+    <type fullname="LicenseSeat.LicenseStatus" preserve="all" serialized="true"/>
+    <type fullname="LicenseSeat.LicenseStatusDetails" preserve="all" serialized="true"/>
+    <type fullname="LicenseSeat.LicenseStatusType" preserve="all"/>
+    <type fullname="LicenseSeat.EntitlementStatus" preserve="all" serialized="true"/>
+    <type fullname="LicenseSeat.EntitlementInactiveReason" preserve="all"/>
+    <type fullname="LicenseSeat.Entitlement" preserve="all" serialized="true"/>
+    <type fullname="LicenseSeat.Product" preserve="all" serialized="true"/>
+
+    <!-- API models -->
+    <type fullname="LicenseSeat.SignedOfflineLicense" preserve="all" serialized="true"/>
+    <type fullname="LicenseSeat.OfflineLicensePayload" preserve="all" serialized="true"/>
+    <type fullname="LicenseSeat.OfflineEntitlement" preserve="all" serialized="true"/>
+
+    <!-- Exception types -->
+    <type fullname="LicenseSeat.LicenseSeatException" preserve="all"/>
+    <type fullname="LicenseSeat.ApiException" preserve="all"/>
+    <type fullname="LicenseSeat.LicenseException" preserve="all"/>
+    <type fullname="LicenseSeat.ConfigurationException" preserve="all"/>
+    <type fullname="LicenseSeat.CryptoException" preserve="all"/>
+
+    <!-- HTTP types -->
+    <type fullname="LicenseSeat.HttpResponse" preserve="all"/>
+    <type fullname="LicenseSeat.IHttpClientAdapter" preserve="all"/>
+
+    <!-- Options types -->
+    <type fullname="LicenseSeat.LicenseSeatClientOptions" preserve="all"/>
+    <type fullname="LicenseSeat.ActivationOptions" preserve="all" serialized="true"/>
+    <type fullname="LicenseSeat.ValidationOptions" preserve="all" serialized="true"/>
+    <type fullname="LicenseSeat.OfflineFallbackMode" preserve="all"/>
+
+    <!-- Event types -->
+    <type fullname="LicenseSeat.EventBus" preserve="all"/>
+    <type fullname="LicenseSeat.LicenseSeatEvents" preserve="all"/>
+
+    <!-- Client types -->
+    <type fullname="LicenseSeat.LicenseSeatClient" preserve="all"/>
+    <type fullname="LicenseSeat.ILicenseSeatClient" preserve="all"/>
+
+    <!-- Unity-specific types -->
+    <type fullname="LicenseSeat.Unity.LicenseSeatSettings" preserve="all" serialized="true"/>
+    <type fullname="LicenseSeat.Unity.UnityWebRequestAdapter" preserve="all"/>
+    <type fullname="LicenseSeat.Unity.TaskExtensions" preserve="all"/>
+    <type fullname="LicenseSeat.Unity.CoroutineExtensions" preserve="all"/>
+  </assembly>
+</linker>
