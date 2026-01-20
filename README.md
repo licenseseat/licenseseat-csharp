@@ -3,7 +3,7 @@
 [![CI](https://github.com/licenseseat/licenseseat-csharp/actions/workflows/ci.yml/badge.svg)](https://github.com/licenseseat/licenseseat-csharp/actions/workflows/ci.yml)
 [![NuGet](https://img.shields.io/nuget/v/LicenseSeat.svg)](https://www.nuget.org/packages/LicenseSeat/)
 [![NuGet Downloads](https://img.shields.io/nuget/dt/LicenseSeat.svg)](https://www.nuget.org/packages/LicenseSeat/)
-[![License](https://img.shields.io/github/license/licenseseat/licenseseat-csharp.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
 Official C# SDK for the [LicenseSeat](https://licenseseat.com) API. Validate licenses, manage activations, and check entitlements in your .NET applications.
 
