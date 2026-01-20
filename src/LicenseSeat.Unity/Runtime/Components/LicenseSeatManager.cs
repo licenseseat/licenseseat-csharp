@@ -2,6 +2,7 @@
 using System;
 using System.Collections;
 using UnityEngine;
+using LicenseSeat.Unity;
 
 namespace LicenseSeat
 {
@@ -113,7 +114,7 @@ namespace LicenseSeat
                 }
             }
 
-            if (!_settings.IsValid())
+            if (!_settings.IsValid)
             {
                 Debug.LogError("[LicenseSeat SDK] Settings are invalid. Please configure your API key.");
                 return;

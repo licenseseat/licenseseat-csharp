@@ -27,7 +27,7 @@ namespace LicenseSeat.Unity.Tests.Runtime
         [Test]
         public void Settings_DefaultValues_AreCorrect()
         {
-            Assert.That(_settings.BaseUrl, Is.EqualTo("https://api.licenseseat.com"));
+            Assert.That(_settings.BaseUrl, Is.EqualTo(LicenseSeatClientOptions.DefaultApiBaseUrl));
             Assert.That(_settings.AutoValidateInterval, Is.EqualTo(0f));
             Assert.That(_settings.MaxOfflineDays, Is.EqualTo(7));
             Assert.That(_settings.EnableDebugLogging, Is.False);
@@ -44,7 +44,19 @@ namespace LicenseSeat.Unity.Tests.Runtime
 
             Assert.That(options, Is.Not.Null);
             Assert.That(options.ApiKey, Is.EqualTo("test-api-key"));
-            Assert.That(options.ProductId, Is.EqualTo("test-product"));
+            // ProductId is not part of LicenseSeatClientOptions - it's passed via ValidationOptions.ProductSlug
+            Assert.That(options.ApiBaseUrl, Is.EqualTo(LicenseSeatClientOptions.DefaultApiBaseUrl));
+        }
+
+        [Test]
+        public void Settings_CreateValidationOptions_IncludesProductSlug()
+        {
+            _settings.ProductId = "test-product";
+
+            var validationOptions = _settings.CreateValidationOptions();
+
+            Assert.That(validationOptions, Is.Not.Null);
+            Assert.That(validationOptions.ProductSlug, Is.EqualTo("test-product"));
         }
 
         [Test]
@@ -90,11 +102,11 @@ namespace LicenseSeat.Unity.Tests.Runtime
         [Test]
         public void Settings_OfflineFallbackMode_IsConfigurable()
         {
-            _settings.OfflineFallbackMode = OfflineFallbackMode.CacheFirst;
+            _settings.OfflineFallbackMode = OfflineFallbackMode.Always;
 
             var options = _settings.ToClientOptions();
 
-            Assert.That(options.OfflineFallbackMode, Is.EqualTo(OfflineFallbackMode.CacheFirst));
+            Assert.That(options.OfflineFallbackMode, Is.EqualTo(OfflineFallbackMode.Always));
         }
 
         [Test]

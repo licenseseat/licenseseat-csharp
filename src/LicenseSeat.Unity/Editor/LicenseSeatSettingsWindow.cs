@@ -1,6 +1,7 @@
 #if UNITY_EDITOR
 using UnityEngine;
 using UnityEditor;
+using LicenseSeat.Unity;
 
 namespace LicenseSeat.Editor
 {
@@ -122,7 +123,7 @@ namespace LicenseSeat.Editor
             EditorGUILayout.Space(10);
 
             // Validation status
-            if (!_settings.IsValid())
+            if (!_settings.IsValid)
             {
                 EditorGUILayout.HelpBox("API Key is required.", MessageType.Warning);
             }
@@ -160,7 +161,7 @@ namespace LicenseSeat.Editor
 
             EditorGUILayout.Space(5);
 
-            EditorGUI.BeginDisabledGroup(_isTesting || !_settings.IsValid() || string.IsNullOrWhiteSpace(_testLicenseKey));
+            EditorGUI.BeginDisabledGroup(_isTesting || !_settings.IsValid || string.IsNullOrWhiteSpace(_testLicenseKey));
 
             EditorGUILayout.BeginHorizontal();
             if (GUILayout.Button("Test Validate"))

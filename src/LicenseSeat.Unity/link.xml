@@ -57,14 +57,30 @@
     <!-- Core types -->
     <type fullname="LicenseSeat.License" preserve="all" serialized="true"/>
     <type fullname="LicenseSeat.ValidationResult" preserve="all" serialized="true"/>
+    <type fullname="LicenseSeat.ActivationResult" preserve="all" serialized="true"/>
     <type fullname="LicenseSeat.LicenseStatus" preserve="all" serialized="true"/>
+    <type fullname="LicenseSeat.LicenseStatusDetails" preserve="all" serialized="true"/>
+    <type fullname="LicenseSeat.LicenseStatusType" preserve="all"/>
     <type fullname="LicenseSeat.EntitlementStatus" preserve="all" serialized="true"/>
+    <type fullname="LicenseSeat.EntitlementInactiveReason" preserve="all"/>
     <type fullname="LicenseSeat.Entitlement" preserve="all" serialized="true"/>
+    <type fullname="LicenseSeat.Product" preserve="all" serialized="true"/>
 
-    <!-- API types -->
+    <!-- API models -->
+    <type fullname="LicenseSeat.SignedOfflineLicense" preserve="all" serialized="true"/>
+    <type fullname="LicenseSeat.OfflineLicensePayload" preserve="all" serialized="true"/>
+    <type fullname="LicenseSeat.OfflineEntitlement" preserve="all" serialized="true"/>
+
+    <!-- Exception types -->
+    <type fullname="LicenseSeat.LicenseSeatException" preserve="all"/>
     <type fullname="LicenseSeat.ApiException" preserve="all"/>
-    <type fullname="LicenseSeat.ApiError" preserve="all" serialized="true"/>
+    <type fullname="LicenseSeat.LicenseException" preserve="all"/>
+    <type fullname="LicenseSeat.ConfigurationException" preserve="all"/>
+    <type fullname="LicenseSeat.CryptoException" preserve="all"/>
+
+    <!-- HTTP types -->
     <type fullname="LicenseSeat.HttpResponse" preserve="all"/>
+    <type fullname="LicenseSeat.IHttpClientAdapter" preserve="all"/>
 
     <!-- Options types -->
     <type fullname="LicenseSeat.LicenseSeatClientOptions" preserve="all"/>
@@ -75,5 +91,15 @@
     <!-- Event types -->
     <type fullname="LicenseSeat.EventBus" preserve="all"/>
     <type fullname="LicenseSeat.LicenseSeatEvents" preserve="all"/>
+
+    <!-- Client types -->
+    <type fullname="LicenseSeat.LicenseSeatClient" preserve="all"/>
+    <type fullname="LicenseSeat.ILicenseSeatClient" preserve="all"/>
+
+    <!-- Unity-specific types -->
+    <type fullname="LicenseSeat.Unity.LicenseSeatSettings" preserve="all" serialized="true"/>
+    <type fullname="LicenseSeat.Unity.UnityWebRequestAdapter" preserve="all"/>
+    <type fullname="LicenseSeat.Unity.TaskExtensions" preserve="all"/>
+    <type fullname="LicenseSeat.Unity.CoroutineExtensions" preserve="all"/>
   </assembly>
 </linker>

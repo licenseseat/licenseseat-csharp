@@ -2,6 +2,8 @@
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
+using LicenseSeat.Unity;
+using LicenseSeat.Editor;
 
 namespace LicenseSeat.Unity.Tests.Editor
 {

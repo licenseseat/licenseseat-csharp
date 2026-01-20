@@ -19,7 +19,7 @@ namespace LicenseSeat.Unity
         [SerializeField] private string productId = "";
 
         [Tooltip("Base URL for the LicenseSeat API.")]
-        [SerializeField] private string baseUrl = "https://api.licenseseat.com";
+        [SerializeField] private string baseUrl = LicenseSeatClientOptions.DefaultApiBaseUrl;
 
         [Header("Validation Settings")]
         [Tooltip("Automatically validate license when the game starts.")]
@@ -120,6 +120,8 @@ namespace LicenseSeat.Unity
 
         /// <summary>
         /// Creates client options from these settings.
+        /// Note: ProductId is not part of client options. Use <see cref="CreateValidationOptions"/>
+        /// to get ValidationOptions with ProductSlug set for validation calls.
         /// </summary>
         /// <returns>Configured client options.</returns>
         public LicenseSeatClientOptions ToClientOptions()
@@ -127,8 +129,7 @@ namespace LicenseSeat.Unity
             var options = new LicenseSeatClientOptions
             {
                 ApiKey = apiKey,
-                ProductId = productId,
-                ApiBaseUrl = string.IsNullOrWhiteSpace(baseUrl) ? "https://api.licenseseat.com" : baseUrl,
+                ApiBaseUrl = string.IsNullOrWhiteSpace(baseUrl) ? LicenseSeatClientOptions.DefaultApiBaseUrl : baseUrl,
                 AutoValidateInterval = autoValidateInterval > 0 ? TimeSpan.FromSeconds(autoValidateInterval) : TimeSpan.Zero,
                 OfflineFallbackMode = offlineFallbackMode,
                 MaxOfflineDays = maxOfflineDays,
@@ -140,6 +141,19 @@ namespace LicenseSeat.Unity
             options.HttpClientAdapter = new UnityWebRequestAdapter(options);
 
             return options;
+        }
+
+        /// <summary>
+        /// Creates validation options with the configured product slug.
+        /// Use this when calling ValidateAsync to include the product identifier.
+        /// </summary>
+        /// <returns>ValidationOptions with ProductSlug set from ProductId.</returns>
+        public ValidationOptions CreateValidationOptions()
+        {
+            return new ValidationOptions
+            {
+                ProductSlug = productId
+            };
         }
 
         private void OnValidate()
