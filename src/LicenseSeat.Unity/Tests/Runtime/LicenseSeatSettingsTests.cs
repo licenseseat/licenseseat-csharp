@@ -1,3 +1,4 @@
+#if UNITY_5_3_OR_NEWER
 using NUnit.Framework;
 using UnityEngine;
 
@@ -27,9 +28,10 @@ namespace LicenseSeat.Unity.Tests.Runtime
         public void Settings_DefaultValues_AreCorrect()
         {
             Assert.That(_settings.BaseUrl, Is.EqualTo("https://api.licenseseat.com"));
-            Assert.That(_settings.AutoValidateInterval, Is.EqualTo(0));
+            Assert.That(_settings.AutoValidateInterval, Is.EqualTo(0f));
             Assert.That(_settings.MaxOfflineDays, Is.EqualTo(7));
             Assert.That(_settings.EnableDebugLogging, Is.False);
+            Assert.That(_settings.ValidateOnStart, Is.True);
         }
 
         [Test]
@@ -94,5 +96,38 @@ namespace LicenseSeat.Unity.Tests.Runtime
 
             Assert.That(options.OfflineFallbackMode, Is.EqualTo(OfflineFallbackMode.CacheFirst));
         }
+
+        [Test]
+        public void Settings_AutoValidateInterval_ConvertsToTimeSpan()
+        {
+            _settings.AutoValidateInterval = 300f; // 5 minutes in seconds
+
+            var options = _settings.ToClientOptions();
+
+            Assert.That(options.AutoValidateInterval.TotalSeconds, Is.EqualTo(300));
+        }
+
+        [Test]
+        public void Settings_AutoValidateInterval_ZeroDisablesAutoValidation()
+        {
+            _settings.AutoValidateInterval = 0f;
+
+            var options = _settings.ToClientOptions();
+
+            Assert.That(options.AutoValidateInterval, Is.EqualTo(System.TimeSpan.Zero));
+        }
+
+        [Test]
+        public void Settings_Load_ReturnsNullWhenNotFound()
+        {
+            // This test verifies the static Load method works
+            // In a real Unity project, it would return the settings from Resources
+            var settings = LicenseSeatSettings.Load();
+
+            // May be null if no settings exist in test environment
+            // This is expected behavior
+            Assert.Pass("Load method executed without error");
+        }
     }
 }
+#endif

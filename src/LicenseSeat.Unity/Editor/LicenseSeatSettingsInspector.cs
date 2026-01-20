@@ -1,3 +1,4 @@
+#if UNITY_EDITOR
 using UnityEditor;
 using UnityEngine;
 
@@ -245,3 +246,4 @@ namespace LicenseSeat.Unity.Editor
         }
     }
 }
+#endif

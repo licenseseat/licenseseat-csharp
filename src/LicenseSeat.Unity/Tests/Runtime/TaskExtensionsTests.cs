@@ -1,3 +1,4 @@
+#if UNITY_5_3_OR_NEWER
 using System;
 using System.Collections;
 using System.Threading;
@@ -64,15 +65,16 @@ namespace LicenseSeat.Unity.Tests.Runtime
         public IEnumerator FireAndForget_LogsException_WhenTaskFails()
         {
             var exceptionLogged = false;
-            var originalHandler = Application.logMessageReceived;
 
-            Application.logMessageReceived += (message, stackTrace, type) =>
+            void LogHandler(string message, string stackTrace, LogType type)
             {
                 if (type == LogType.Exception && message.Contains("Test exception"))
                 {
                     exceptionLogged = true;
                 }
-            };
+            }
+
+            Application.logMessageReceived += LogHandler;
 
             try
             {
@@ -86,7 +88,7 @@ namespace LicenseSeat.Unity.Tests.Runtime
             }
             finally
             {
-                Application.logMessageReceived -= (message, stackTrace, type) => { };
+                Application.logMessageReceived -= LogHandler;
             }
         }
 
@@ -126,3 +128,4 @@ namespace LicenseSeat.Unity.Tests.Runtime
         }
     }
 }
+#endif

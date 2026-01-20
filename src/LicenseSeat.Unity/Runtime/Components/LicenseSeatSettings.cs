@@ -2,7 +2,7 @@
 using System;
 using UnityEngine;
 
-namespace LicenseSeat
+namespace LicenseSeat.Unity
 {
     /// <summary>
     /// ScriptableObject for storing LicenseSeat SDK configuration.
@@ -13,74 +13,110 @@ namespace LicenseSeat
     {
         [Header("API Configuration")]
         [Tooltip("Your LicenseSeat API key. Required for authenticated requests.")]
-        [SerializeField] private string _apiKey = "";
+        [SerializeField] private string apiKey = "";
+
+        [Tooltip("Your product identifier from the LicenseSeat dashboard.")]
+        [SerializeField] private string productId = "";
 
         [Tooltip("Base URL for the LicenseSeat API.")]
-        [SerializeField] private string _apiBaseUrl = LicenseSeatClientOptions.DefaultApiBaseUrl;
+        [SerializeField] private string baseUrl = "https://api.licenseseat.com";
 
-        [Header("Validation")]
-        [Tooltip("Interval between automatic license validations (in minutes). Set to 0 to disable.")]
+        [Header("Validation Settings")]
+        [Tooltip("Automatically validate license when the game starts.")]
+        [SerializeField] private bool validateOnStart = true;
+
+        [Tooltip("Interval between automatic license validations (in seconds). Set to 0 to disable.")]
         [Min(0)]
-        [SerializeField] private int _autoValidateIntervalMinutes = 60;
+        [SerializeField] private float autoValidateInterval = 0;
 
-        [Tooltip("HTTP request timeout (in seconds).")]
-        [Min(1)]
-        [SerializeField] private int _httpTimeoutSeconds = 30;
-
-        [Header("Offline Support")]
+        [Header("Offline Settings")]
         [Tooltip("When to use offline validation as fallback.")]
-        [SerializeField] private OfflineFallbackMode _offlineFallbackMode = OfflineFallbackMode.Disabled;
+        [SerializeField] private OfflineFallbackMode offlineFallbackMode = OfflineFallbackMode.Disabled;
 
-        [Tooltip("Maximum days a license can be used offline (0 = unlimited).")]
+        [Tooltip("Maximum days a license can be used offline.")]
         [Min(0)]
-        [SerializeField] private int _maxOfflineDays = 0;
+        [SerializeField] private int maxOfflineDays = 7;
 
-        [Header("Debug")]
+        [Header("Debug Settings")]
         [Tooltip("Enable debug logging to console.")]
-        [SerializeField] private bool _debugLogging = false;
-
-        [Tooltip("Custom storage prefix for cached data.")]
-        [SerializeField] private string _storagePrefix = "licenseseat_";
+        [SerializeField] private bool enableDebugLogging = false;
 
         /// <summary>
-        /// Gets the API key.
+        /// Gets or sets the API key.
         /// </summary>
-        public string ApiKey => _apiKey;
+        public string ApiKey
+        {
+            get => apiKey;
+            set => apiKey = value;
+        }
 
         /// <summary>
-        /// Gets the API base URL.
+        /// Gets or sets the product ID.
         /// </summary>
-        public string ApiBaseUrl => _apiBaseUrl;
+        public string ProductId
+        {
+            get => productId;
+            set => productId = value;
+        }
 
         /// <summary>
-        /// Gets the auto-validation interval.
+        /// Gets or sets the API base URL.
         /// </summary>
-        public TimeSpan AutoValidateInterval => TimeSpan.FromMinutes(_autoValidateIntervalMinutes);
+        public string BaseUrl
+        {
+            get => baseUrl;
+            set => baseUrl = value;
+        }
 
         /// <summary>
-        /// Gets the HTTP timeout.
+        /// Gets or sets whether to validate on start.
         /// </summary>
-        public TimeSpan HttpTimeout => TimeSpan.FromSeconds(_httpTimeoutSeconds);
+        public bool ValidateOnStart
+        {
+            get => validateOnStart;
+            set => validateOnStart = value;
+        }
 
         /// <summary>
-        /// Gets the offline fallback mode.
+        /// Gets or sets the auto-validation interval in seconds.
         /// </summary>
-        public OfflineFallbackMode OfflineFallbackMode => _offlineFallbackMode;
+        public float AutoValidateInterval
+        {
+            get => autoValidateInterval;
+            set => autoValidateInterval = value;
+        }
 
         /// <summary>
-        /// Gets the maximum offline days.
+        /// Gets or sets the offline fallback mode.
         /// </summary>
-        public int MaxOfflineDays => _maxOfflineDays;
+        public OfflineFallbackMode OfflineFallbackMode
+        {
+            get => offlineFallbackMode;
+            set => offlineFallbackMode = value;
+        }
 
         /// <summary>
-        /// Gets whether debug logging is enabled.
+        /// Gets or sets the maximum offline days.
         /// </summary>
-        public bool DebugLogging => _debugLogging;
+        public int MaxOfflineDays
+        {
+            get => maxOfflineDays;
+            set => maxOfflineDays = value;
+        }
 
         /// <summary>
-        /// Gets the storage prefix.
+        /// Gets or sets whether debug logging is enabled.
         /// </summary>
-        public string StoragePrefix => _storagePrefix;
+        public bool EnableDebugLogging
+        {
+            get => enableDebugLogging;
+            set => enableDebugLogging = value;
+        }
+
+        /// <summary>
+        /// Gets whether the settings are valid (has required configuration).
+        /// </summary>
+        public bool IsValid => !string.IsNullOrWhiteSpace(apiKey) && !string.IsNullOrWhiteSpace(productId);
 
         /// <summary>
         /// Creates client options from these settings.
@@ -90,14 +126,13 @@ namespace LicenseSeat
         {
             var options = new LicenseSeatClientOptions
             {
-                ApiKey = _apiKey,
-                ApiBaseUrl = string.IsNullOrWhiteSpace(_apiBaseUrl) ? LicenseSeatClientOptions.DefaultApiBaseUrl : _apiBaseUrl,
-                AutoValidateInterval = TimeSpan.FromMinutes(_autoValidateIntervalMinutes),
-                HttpTimeout = TimeSpan.FromSeconds(_httpTimeoutSeconds),
-                OfflineFallbackMode = _offlineFallbackMode,
-                MaxOfflineDays = _maxOfflineDays,
-                Debug = _debugLogging,
-                StoragePrefix = _storagePrefix,
+                ApiKey = apiKey,
+                ProductId = productId,
+                ApiBaseUrl = string.IsNullOrWhiteSpace(baseUrl) ? "https://api.licenseseat.com" : baseUrl,
+                AutoValidateInterval = autoValidateInterval > 0 ? TimeSpan.FromSeconds(autoValidateInterval) : TimeSpan.Zero,
+                OfflineFallbackMode = offlineFallbackMode,
+                MaxOfflineDays = maxOfflineDays,
+                Debug = enableDebugLogging,
                 AutoInitialize = false // Let LicenseSeatManager control initialization
             };
 
@@ -107,26 +142,16 @@ namespace LicenseSeat
             return options;
         }
 
-        /// <summary>
-        /// Validates the settings configuration.
-        /// </summary>
-        /// <returns>True if settings are valid.</returns>
-        public bool IsValid()
-        {
-            return !string.IsNullOrWhiteSpace(_apiKey) && !string.IsNullOrWhiteSpace(_apiBaseUrl);
-        }
-
         private void OnValidate()
         {
             // Ensure minimum values
-            if (_autoValidateIntervalMinutes < 0) _autoValidateIntervalMinutes = 0;
-            if (_httpTimeoutSeconds < 1) _httpTimeoutSeconds = 1;
-            if (_maxOfflineDays < 0) _maxOfflineDays = 0;
+            if (autoValidateInterval < 0) autoValidateInterval = 0;
+            if (maxOfflineDays < 0) maxOfflineDays = 0;
 
             // Ensure API base URL has trailing slash removed
-            if (!string.IsNullOrEmpty(_apiBaseUrl) && _apiBaseUrl.EndsWith("/"))
+            if (!string.IsNullOrEmpty(baseUrl) && baseUrl.EndsWith("/"))
             {
-                _apiBaseUrl = _apiBaseUrl.TrimEnd('/');
+                baseUrl = baseUrl.TrimEnd('/');
             }
         }
 

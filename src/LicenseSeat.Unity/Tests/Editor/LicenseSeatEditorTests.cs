@@ -1,3 +1,4 @@
+#if UNITY_EDITOR
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
@@ -14,9 +15,6 @@ namespace LicenseSeat.Unity.Tests.Editor
         public void SettingsProvider_IsRegistered()
         {
             // Check that our settings provider path exists
-            var provider = SettingsService.GetSettingsProvider("Project/LicenseSeat");
-
-            // Note: This may be null in test environment
             // The actual registration happens via the [SettingsProvider] attribute
             Assert.Pass("Settings provider attribute is defined on LicenseSeatSettingsProvider");
         }
@@ -25,9 +23,6 @@ namespace LicenseSeat.Unity.Tests.Editor
         public void MenuItems_ExistInCorrectLocation()
         {
             // Verify menu items are defined
-            // Note: We can't directly invoke menu items in tests,
-            // but we verify the methods exist with correct attributes
-
             var menuMethod = typeof(LicenseSeatMenuItems)
                 .GetMethod("CreateSettingsAsset", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
 
@@ -74,5 +69,25 @@ namespace LicenseSeat.Unity.Tests.Editor
 
             Object.DestroyImmediate(settings);
         }
+
+        [Test]
+        public void Settings_AllFieldsAreSerializable()
+        {
+            var settings = ScriptableObject.CreateInstance<LicenseSeatSettings>();
+            var serialized = new SerializedObject(settings);
+
+            // Verify all expected fields exist
+            Assert.That(serialized.FindProperty("apiKey"), Is.Not.Null, "apiKey should be serializable");
+            Assert.That(serialized.FindProperty("productId"), Is.Not.Null, "productId should be serializable");
+            Assert.That(serialized.FindProperty("baseUrl"), Is.Not.Null, "baseUrl should be serializable");
+            Assert.That(serialized.FindProperty("validateOnStart"), Is.Not.Null, "validateOnStart should be serializable");
+            Assert.That(serialized.FindProperty("autoValidateInterval"), Is.Not.Null, "autoValidateInterval should be serializable");
+            Assert.That(serialized.FindProperty("offlineFallbackMode"), Is.Not.Null, "offlineFallbackMode should be serializable");
+            Assert.That(serialized.FindProperty("maxOfflineDays"), Is.Not.Null, "maxOfflineDays should be serializable");
+            Assert.That(serialized.FindProperty("enableDebugLogging"), Is.Not.Null, "enableDebugLogging should be serializable");
+
+            Object.DestroyImmediate(settings);
+        }
     }
 }
+#endif
