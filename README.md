@@ -246,34 +246,36 @@ public partial class LicenseManager : Node
 
 ### Unity
 
-Unity requires manual setup since it doesn't have native NuGet support.
+We provide a dedicated **Unity SDK** with full cross-platform support, including WebGL, iOS, and Android with IL2CPP.
 
-**Installation (Option 1 - NuGetForUnity):**
+**Installation (Recommended - Unity Package Manager):**
 
-1. Install [NuGetForUnity](https://github.com/GlitchEnzo/NuGetForUnity) via the Package Manager:
-   - Add package from git URL: `https://github.com/GlitchEnzo/NuGetForUnity.git?path=/src/NuGetForUnity`
+1. Open **Window → Package Manager**
+2. Click **+** → **Add package from git URL...**
+3. Enter:
+   ```
+   https://github.com/licenseseat/licenseseat-csharp.git?path=src/LicenseSeat.Unity
+   ```
 
-2. Go to **NuGet** → **Manage NuGet Packages** and search for `LicenseSeat`
+Or add directly to your `Packages/manifest.json`:
 
-3. Click **Install**
-
-**Installation (Option 2 - Manual DLL):**
-
-1. Download the `.nupkg` from [NuGet.org](https://www.nuget.org/packages/LicenseSeat/)
-2. Rename to `.zip` and extract
-3. Copy the DLL from `lib/netstandard2.0/` to your Unity project's `Assets/Plugins/` folder
-4. Also copy the dependency DLLs:
-   - `System.Text.Json.dll`
-   - `BouncyCastle.Crypto.dll`
-   - `Microsoft.Extensions.DependencyInjection.Abstractions.dll`
-   - `Microsoft.Extensions.Options.dll`
-
-**Required: Add HttpClient Reference**
-
-Create a file named `csc.rsp` in your `Assets/` folder with:
-
+```json
+{
+  "dependencies": {
+    "com.licenseseat.sdk": "https://github.com/licenseseat/licenseseat-csharp.git?path=src/LicenseSeat.Unity"
+  }
+}
 ```
--r:System.Net.Http.dll
+
+**For a specific version:**
+```
+https://github.com/licenseseat/licenseseat-csharp.git?path=src/LicenseSeat.Unity#v0.2.0
+```
+
+**Installation (OpenUPM):**
+
+```bash
+openupm add com.licenseseat.sdk
 ```
 
 **Usage in Unity:**
@@ -281,61 +283,46 @@ Create a file named `csc.rsp` in your `Assets/` folder with:
 ```csharp
 using UnityEngine;
 using LicenseSeat;
-using System.Threading.Tasks;
 
-public class LicenseManager : MonoBehaviour
+public class LicenseController : MonoBehaviour
 {
-    private LicenseSeatClient _client;
+    private LicenseSeatManager _manager;
 
     void Start()
     {
-        _client = new LicenseSeatClient(new LicenseSeatClientOptions
-        {
-            ApiKey = "your-api-key"
-        });
+        _manager = FindObjectOfType<LicenseSeatManager>();
+
+        // Subscribe to events
+        _manager.Client.Events.On(LicenseSeatEvents.LicenseValidated, _ =>
+            Debug.Log("License validated!"));
     }
 
-    public async void ValidateLicense(string licenseKey)
+    public void ActivateLicense(string licenseKey)
     {
-        try
+        // Using coroutine for Unity-friendly async
+        StartCoroutine(_manager.ActivateCoroutine(licenseKey, (license, error) =>
         {
-            var result = await _client.ValidateAsync(licenseKey);
-            if (result.Valid)
+            if (error != null)
             {
-                Debug.Log("License is valid!");
-                // Unlock features
+                Debug.LogError($"Activation failed: {error.Message}");
+                return;
             }
-            else
-            {
-                Debug.LogWarning($"License invalid: {result.Error}");
-            }
-        }
-        catch (System.Exception ex)
-        {
-            Debug.LogError($"License check failed: {ex.Message}");
-        }
-    }
-
-    void OnDestroy()
-    {
-        _client?.Dispose();
+            Debug.Log($"License activated: {license.LicenseKey}");
+        }));
     }
 }
 ```
 
-**Unity Tips:**
+**Unity SDK Features:**
 
-- Always dispose the client in `OnDestroy()` to prevent memory leaks
-- For WebGL builds, async HTTP may have limitations - consider using offline validation
-- If building for iOS/Android with IL2CPP, add a `link.xml` file to preserve SDK types:
+- **Pure C#** - No native DLLs, works on all platforms
+- **IL2CPP Compatible** - Automatic link.xml injection via `IUnityLinkerProcessor`
+- **WebGL Support** - Uses `UnityWebRequest` instead of `HttpClient`
+- **Unity-Native** - ScriptableObject configuration, MonoBehaviour integration
+- **Editor Tools** - Settings window, custom inspectors
+- **Samples Included** - Basic usage and offline validation examples
 
-```xml
-<linker>
-    <assembly fullname="LicenseSeat" preserve="all"/>
-    <assembly fullname="System.Text.Json" preserve="all"/>
-    <assembly fullname="BouncyCastle.Crypto" preserve="all"/>
-</linker>
-```
+For full Unity documentation, see [src/LicenseSeat.Unity/README.md](src/LicenseSeat.Unity/README.md).
 
 ### Windows Desktop Apps (WPF, WinForms, MAUI)
 
@@ -381,43 +368,83 @@ dotnet pack --configuration Release --output ./artifacts
 
 ### Releasing a New Version
 
-Releases are automated via GitHub Actions. To publish a new version to NuGet:
+This repository contains two distributable packages:
+- **NuGet Package** (`LicenseSeat`) - For .NET applications, Godot, etc.
+- **Unity Package** (`com.licenseseat.sdk`) - For Unity projects via UPM/OpenUPM
 
-1. **Update the version** in `src/LicenseSeat/LicenseSeat.csproj`:
-   ```xml
-   <Version>1.0.0</Version>
-   ```
+#### Release Process
 
-2. **Create a GitHub Release**:
-   ```bash
-   # Create and push a tag
-   git tag v1.0.0
-   git push origin v1.0.0
-   ```
+**1. Update versions in both packages:**
 
-   Then go to [GitHub Releases](https://github.com/licenseseat/licenseseat-csharp/releases) and create a new release from the tag.
+```bash
+# NuGet package version
+# Edit src/LicenseSeat/LicenseSeat.csproj
+<Version>1.0.0</Version>
 
-   **Or use the GitHub CLI:**
-   ```bash
-   gh release create v1.0.0 --title "v1.0.0" --notes "Release notes here"
-   ```
+# Unity package version
+# Edit src/LicenseSeat.Unity/package.json
+"version": "1.0.0"
 
-3. **Automatic publishing**: The release workflow will automatically:
-   - Build and test the package
-   - Create the NuGet package with the release version
-   - Publish to [NuGet.org](https://www.nuget.org/packages/LicenseSeat/)
-   - Attach the `.nupkg` file to the GitHub release
+# Unity changelog
+# Edit src/LicenseSeat.Unity/CHANGELOG.md
+## [1.0.0] - YYYY-MM-DD
+```
+
+**2. Ensure Unity files are in sync:**
+
+```bash
+./scripts/validate-unity-sync.sh
+./scripts/validate-unity-package.sh
+```
+
+**3. Commit and create a GitHub Release:**
+
+```bash
+git add -A
+git commit -m "Bump version to 1.0.0"
+git push
+
+# Create and push a tag
+git tag v1.0.0
+git push origin v1.0.0
+
+# Create the release
+gh release create v1.0.0 --title "v1.0.0" --notes "Release notes here"
+```
+
+**4. Automatic publishing**: The release workflow will:
+- Build and test both packages
+- Publish NuGet package to [NuGet.org](https://www.nuget.org/packages/LicenseSeat/)
+- Attach the `.nupkg` file to the GitHub release
+
+**5. Unity package is automatically available** via Git URL:
+```
+https://github.com/licenseseat/licenseseat-csharp.git?path=src/LicenseSeat.Unity#v1.0.0
+```
+
+#### OpenUPM Submission (One-Time Setup)
+
+To make the Unity package available via `openupm add`:
+
+1. Go to [openupm.com/packages/add](https://openupm.com/packages/add/)
+2. Enter repository URL: `https://github.com/licenseseat/licenseseat-csharp`
+3. The build pipelines will auto-detect `package.json` at `src/LicenseSeat.Unity/`
+4. Submit for review (typically approved within 24 hours)
+
+After approval, OpenUPM automatically tracks new Git tags and publishes updates.
 
 #### Version Guidelines
 
-- **Major** (`X.0.0`): Breaking API changes
-- **Minor** (`0.X.0`): New features, backward compatible
-- **Patch** (`0.0.X`): Bug fixes, backward compatible
-- **Prerelease** (`1.0.0-beta.1`): Preview versions
+| Type | Example | When to Use |
+|------|---------|-------------|
+| Major | `1.0.0` → `2.0.0` | Breaking API changes |
+| Minor | `1.0.0` → `1.1.0` | New features, backward compatible |
+| Patch | `1.0.0` → `1.0.1` | Bug fixes, backward compatible |
+| Prerelease | `1.0.0-beta.1` | Preview/testing versions |
 
 #### Manual Release (if needed)
 
-You can also trigger a release manually from the Actions tab:
+You can trigger a release manually from the Actions tab:
 
 1. Go to **Actions** → **Release** workflow
 2. Click **Run workflow**
