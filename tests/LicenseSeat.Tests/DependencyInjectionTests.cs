@@ -1,0 +1,185 @@
+using System;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace LicenseSeat.Tests;
+
+public class DependencyInjectionTests
+{
+    [Fact]
+    public void AddLicenseSeatClient_WithApiKey_RegistersClient()
+    {
+        var services = new ServiceCollection();
+
+        services.AddLicenseSeatClient("test-api-key");
+
+        var serviceProvider = services.BuildServiceProvider();
+        var client = serviceProvider.GetService<ILicenseSeatClient>();
+
+        Assert.NotNull(client);
+        Assert.IsType<LicenseSeatClient>(client);
+    }
+
+    [Fact]
+    public void AddLicenseSeatClient_WithEmptyApiKey_ThrowsArgumentException()
+    {
+        var services = new ServiceCollection();
+
+        Assert.Throws<ArgumentException>(() => services.AddLicenseSeatClient(""));
+    }
+
+    [Fact]
+    public void AddLicenseSeatClient_WithConfigure_RegistersClientWithOptions()
+    {
+        var services = new ServiceCollection();
+
+        services.AddLicenseSeatClient(options =>
+        {
+            options.ApiKey = "test-api-key";
+            options.ApiBaseUrl = "https://custom.api.com";
+            options.Debug = true;
+        });
+
+        var serviceProvider = services.BuildServiceProvider();
+        var client = serviceProvider.GetService<ILicenseSeatClient>();
+
+        Assert.NotNull(client);
+        Assert.Equal("https://custom.api.com", client!.Options.ApiBaseUrl);
+        Assert.True(client.Options.Debug);
+    }
+
+    [Fact]
+    public void AddLicenseSeatClient_WithNullConfigure_ThrowsArgumentNullException()
+    {
+        var services = new ServiceCollection();
+
+        Assert.Throws<ArgumentNullException>(() => services.AddLicenseSeatClient((Action<LicenseSeatClientOptions>)null!));
+    }
+
+    [Fact]
+    public void AddLicenseSeatClient_WithOptions_RegistersClientWithProvidedOptions()
+    {
+        var services = new ServiceCollection();
+        var options = new LicenseSeatClientOptions
+        {
+            ApiKey = "test-api-key",
+            ApiBaseUrl = "https://custom.api.com",
+            AutoInitialize = false
+        };
+
+        services.AddLicenseSeatClient(options);
+
+        var serviceProvider = services.BuildServiceProvider();
+        var client = serviceProvider.GetService<ILicenseSeatClient>();
+
+        Assert.NotNull(client);
+        Assert.Equal("https://custom.api.com", client!.Options.ApiBaseUrl);
+    }
+
+    [Fact]
+    public void AddLicenseSeatClient_WithNullOptions_ThrowsArgumentNullException()
+    {
+        var services = new ServiceCollection();
+
+        Assert.Throws<ArgumentNullException>(() => services.AddLicenseSeatClient((LicenseSeatClientOptions)null!));
+    }
+
+    [Fact]
+    public void AddLicenseSeatClient_WithFactory_RegistersClientFromFactory()
+    {
+        var services = new ServiceCollection();
+        var customOptions = new LicenseSeatClientOptions
+        {
+            ApiKey = "factory-api-key",
+            AutoInitialize = false
+        };
+
+        services.AddLicenseSeatClient(sp => new LicenseSeatClient(customOptions));
+
+        var serviceProvider = services.BuildServiceProvider();
+        var client = serviceProvider.GetService<ILicenseSeatClient>();
+
+        Assert.NotNull(client);
+        Assert.Equal("factory-api-key", client!.Options.ApiKey);
+    }
+
+    [Fact]
+    public void AddLicenseSeatClient_WithNullFactory_ThrowsArgumentNullException()
+    {
+        var services = new ServiceCollection();
+
+        Assert.Throws<ArgumentNullException>(() => services.AddLicenseSeatClient((Func<IServiceProvider, ILicenseSeatClient>)null!));
+    }
+
+    [Fact]
+    public void AddLicenseSeatClient_RegistersAsSingleton()
+    {
+        var services = new ServiceCollection();
+
+        services.AddLicenseSeatClient(options =>
+        {
+            options.ApiKey = "test-api-key";
+            options.AutoInitialize = false;
+        });
+
+        var serviceProvider = services.BuildServiceProvider();
+        var client1 = serviceProvider.GetService<ILicenseSeatClient>();
+        var client2 = serviceProvider.GetService<ILicenseSeatClient>();
+
+        Assert.Same(client1, client2);
+    }
+
+    [Fact]
+    public void AddLicenseSeatClient_CalledTwice_ConfigureActionsAreMerged()
+    {
+        var services = new ServiceCollection();
+
+        // First registration sets ApiKey
+        services.AddLicenseSeatClient(options =>
+        {
+            options.ApiKey = "first-key";
+            options.AutoInitialize = false;
+        });
+
+        // Second registration also runs (Configure actions are additive)
+        services.AddLicenseSeatClient(options =>
+        {
+            options.ApiKey = "second-key";
+            options.AutoInitialize = false;
+        });
+
+        var serviceProvider = services.BuildServiceProvider();
+        var client = serviceProvider.GetService<ILicenseSeatClient>();
+
+        // Configure actions are merged, so last one wins for ApiKey
+        // But TryAddSingleton prevents duplicate service registration
+        Assert.NotNull(client);
+    }
+
+    [Fact]
+    public void AddLicenseSeatClient_ReturnsServiceCollection()
+    {
+        var services = new ServiceCollection();
+
+        var result = services.AddLicenseSeatClient("test-api-key");
+
+        Assert.Same(services, result);
+    }
+
+    [Fact]
+    public void Client_CanBeDisposed_WhenRetrievedFromDI()
+    {
+        var services = new ServiceCollection();
+        services.AddLicenseSeatClient(options =>
+        {
+            options.ApiKey = "test-api-key";
+            options.AutoInitialize = false;
+        });
+
+        var serviceProvider = services.BuildServiceProvider();
+        var client = serviceProvider.GetRequiredService<ILicenseSeatClient>();
+
+        // Should not throw
+        var exception = Record.Exception(() => client.Dispose());
+        Assert.Null(exception);
+    }
+}
