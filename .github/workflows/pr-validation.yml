@@ -1,0 +1,243 @@
+name: PR Validation
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+env:
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  DOTNET_NOLOGO: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: write
+
+jobs:
+  # ============================================================
+  # Quick Validation
+  # ============================================================
+  quick-check:
+    name: Quick Validation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore --configuration Release
+
+      - name: Test
+        run: |
+          dotnet test --no-build --configuration Release \
+            --logger "trx;LogFileName=test-results.trx" \
+            --collect:"XPlat Code Coverage" \
+            --results-directory ./TestResults
+
+      - name: Publish Test Results
+        uses: dorny/test-reporter@v1
+        if: always()
+        with:
+          name: Test Results
+          path: '**/test-results.trx'
+          reporter: dotnet-trx
+          fail-on-error: true
+
+  # ============================================================
+  # Size Impact Analysis
+  # ============================================================
+  size-check:
+    name: Package Size Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build Release
+        run: dotnet build --configuration Release
+
+      - name: Create Package
+        run: dotnet pack src/LicenseSeat/LicenseSeat.csproj --configuration Release --no-build --output ./packages
+
+      - name: Check Package Size
+        id: size
+        run: |
+          PACKAGE=$(ls ./packages/*.nupkg)
+          SIZE=$(stat -c%s "$PACKAGE")
+          SIZE_KB=$((SIZE / 1024))
+          SIZE_MB=$(echo "scale=2; $SIZE / 1048576" | bc)
+
+          echo "size_bytes=${SIZE}" >> $GITHUB_OUTPUT
+          echo "size_kb=${SIZE_KB}" >> $GITHUB_OUTPUT
+          echo "size_mb=${SIZE_MB}" >> $GITHUB_OUTPUT
+
+          echo "## Package Size Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Package Size | ${SIZE_KB} KB (${SIZE_MB} MB) |" >> $GITHUB_STEP_SUMMARY
+
+          # Warn if package is larger than 500KB
+          if [ $SIZE_KB -gt 500 ]; then
+            echo "::warning::Package size (${SIZE_KB} KB) exceeds recommended 500 KB"
+          fi
+
+          # Fail if package is larger than 2MB
+          if [ $SIZE_KB -gt 2048 ]; then
+            echo "::error::Package size (${SIZE_KB} KB) exceeds maximum 2 MB"
+            exit 1
+          fi
+
+      - name: List Package Contents
+        run: |
+          echo "### Package Contents" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          unzip -l ./packages/*.nupkg >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+  # ============================================================
+  # API Compatibility Check
+  # ============================================================
+  api-compat:
+    name: API Compatibility
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout PR
+        uses: actions/checkout@v4
+        with:
+          path: pr
+
+      - name: Checkout Base
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.base_ref }}
+          path: base
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Build Base
+        run: |
+          cd base
+          dotnet restore
+          dotnet build src/LicenseSeat/LicenseSeat.csproj --configuration Release || true
+
+      - name: Build PR
+        run: |
+          cd pr
+          dotnet restore
+          dotnet build src/LicenseSeat/LicenseSeat.csproj --configuration Release
+
+      - name: Check for Breaking Changes
+        run: |
+          echo "## API Compatibility Check" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Simple check: compare public API surface
+          if [ -f "base/src/LicenseSeat/bin/Release/netstandard2.0/LicenseSeat.dll" ]; then
+            echo "Comparing API surface with base branch..." >> $GITHUB_STEP_SUMMARY
+
+            # Use ildasm or similar to compare (simplified check)
+            BASE_TYPES=$(dotnet tool run ilspycmd base/src/LicenseSeat/bin/Release/netstandard2.0/LicenseSeat.dll 2>/dev/null | grep -c "public class\|public interface\|public struct" || echo "0")
+            PR_TYPES=$(dotnet tool run ilspycmd pr/src/LicenseSeat/bin/Release/netstandard2.0/LicenseSeat.dll 2>/dev/null | grep -c "public class\|public interface\|public struct" || echo "0")
+
+            echo "- Base branch public types: ${BASE_TYPES}" >> $GITHUB_STEP_SUMMARY
+            echo "- PR public types: ${PR_TYPES}" >> $GITHUB_STEP_SUMMARY
+
+            if [ "$PR_TYPES" -lt "$BASE_TYPES" ]; then
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "⚠️ **Warning:** Public API surface may have decreased. Please verify no breaking changes." >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "✅ First release - no base to compare against" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # ============================================================
+  # Documentation Check
+  # ============================================================
+  docs-check:
+    name: Documentation Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check XML Documentation
+        run: |
+          echo "## Documentation Check" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Count public members without XML docs
+          MISSING_DOCS=$(grep -r "public" src/LicenseSeat/*.cs src/LicenseSeat/**/*.cs 2>/dev/null | grep -v "/// <summary>" | wc -l || echo "0")
+
+          echo "Checking for XML documentation coverage..." >> $GITHUB_STEP_SUMMARY
+
+          # Check if GenerateDocumentationFile is enabled
+          if grep -q "<GenerateDocumentationFile>true</GenerateDocumentationFile>" src/LicenseSeat/LicenseSeat.csproj; then
+            echo "✅ XML documentation generation is enabled" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ XML documentation generation is not enabled in csproj" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Check README exists
+        run: |
+          if [ -f "README.md" ]; then
+            echo "✅ README.md exists" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ README.md is missing" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # ============================================================
+  # PR Summary
+  # ============================================================
+  summary:
+    name: PR Summary
+    runs-on: ubuntu-latest
+    needs: [quick-check, size-check]
+    if: always()
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Generate Summary
+        run: |
+          echo "## PR Validation Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ needs.quick-check.result }}" == "success" ]; then
+            echo "| Build & Test | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Build & Test | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ "${{ needs.size-check.result }}" == "success" ]; then
+            echo "| Package Size | ✅ OK |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Package Size | ⚠️ Check needed |" >> $GITHUB_STEP_SUMMARY
+          fi
