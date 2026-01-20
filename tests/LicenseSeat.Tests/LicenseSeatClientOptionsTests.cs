@@ -1,4 +1,6 @@
 using System;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace LicenseSeat.Tests;
 
@@ -24,6 +26,7 @@ public class LicenseSeatClientOptionsTests
         Assert.True(options.AutoInitialize);
         Assert.Null(options.DeviceIdentifier);
         Assert.Equal(TimeSpan.FromSeconds(30), options.HttpTimeout);
+        Assert.Null(options.HttpClientAdapter);
     }
 
     [Fact]
@@ -43,6 +46,7 @@ public class LicenseSeatClientOptionsTests
     [Fact]
     public void Clone_CopiesAllProperties()
     {
+        var mockAdapter = new MockHttpClientAdapter();
         var original = new LicenseSeatClientOptions
         {
             ApiKey = "test-key",
@@ -59,7 +63,8 @@ public class LicenseSeatClientOptionsTests
             MaxClockSkew = TimeSpan.FromMinutes(10),
             AutoInitialize = false,
             DeviceIdentifier = "device-123",
-            HttpTimeout = TimeSpan.FromSeconds(60)
+            HttpTimeout = TimeSpan.FromSeconds(60),
+            HttpClientAdapter = mockAdapter
         };
 
         var clone = original.Clone();
@@ -80,6 +85,19 @@ public class LicenseSeatClientOptionsTests
         Assert.Equal(original.AutoInitialize, clone.AutoInitialize);
         Assert.Equal(original.DeviceIdentifier, clone.DeviceIdentifier);
         Assert.Equal(original.HttpTimeout, clone.HttpTimeout);
+        Assert.Same(original.HttpClientAdapter, clone.HttpClientAdapter);
+    }
+
+    /// <summary>
+    /// Mock HTTP client adapter for testing Clone functionality.
+    /// </summary>
+    private sealed class MockHttpClientAdapter : IHttpClientAdapter
+    {
+        public Task<HttpResponse> GetAsync(string url, CancellationToken cancellationToken = default)
+            => Task.FromResult(new HttpResponse(200, "{}"));
+
+        public Task<HttpResponse> PostAsync(string url, string jsonBody, CancellationToken cancellationToken = default)
+            => Task.FromResult(new HttpResponse(200, "{}"));
     }
 
     [Fact]

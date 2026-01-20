@@ -71,6 +71,50 @@ public class LicenseSeatClientTests
     }
 
     [Fact]
+    public async Task Constructor_WithHttpClientAdapterInOptions_UsesProvidedAdapter()
+    {
+        // Arrange: Create a mock that tracks whether it was called
+        var mockHttp = new MockHttpClient();
+        var wasCalled = false;
+        mockHttp.SetupPost((url, body) =>
+        {
+            wasCalled = true;
+            if (url.Contains("/activations/activate"))
+            {
+                return new HttpResponse(200, """
+                    {
+                        "success": true,
+                        "license": {
+                            "license_key": "TEST-KEY",
+                            "status": "active",
+                            "plan_key": "pro",
+                            "seat_limit": 5
+                        }
+                    }
+                """);
+            }
+            return new HttpResponse(200, "{}");
+        });
+
+        // Set the adapter via options (this is the key part of this test)
+        var options = new LicenseSeatClientOptions
+        {
+            ApiKey = "test-api-key",
+            ApiBaseUrl = "https://api.test.com",
+            AutoInitialize = false,
+            AutoValidateInterval = TimeSpan.Zero,
+            HttpClientAdapter = mockHttp  // <-- Inject via options, not constructor
+        };
+
+        // Act: Use the PUBLIC constructor (not the internal one)
+        using var client = new LicenseSeatClient(options);
+        await client.ActivateAsync("TEST-KEY");
+
+        // Assert: The mock adapter should have been used
+        Assert.True(wasCalled, "HttpClientAdapter from options should be used for API calls");
+    }
+
+    [Fact]
     public async Task ActivateAsync_Success_ReturnsLicense()
     {
         var options = CreateOptions();
@@ -403,4 +447,150 @@ public class LicenseSeatClientTests
         // No offline license cached, so should be invalid
         Assert.False(result.Valid);
     }
+
+    #region Synchronous Wrapper Tests
+
+    [Fact]
+    public void Activate_Sync_ReturnsLicense()
+    {
+        var options = CreateOptions();
+        var mockHttp = new MockHttpClient();
+        mockHttp.SetupPost((url, body) =>
+        {
+            if (url.Contains("/activations/activate"))
+            {
+                return new HttpResponse(200, """
+                    {
+                        "success": true,
+                        "license": {
+                            "license_key": "SYNC-TEST-KEY",
+                            "status": "active",
+                            "plan_key": "pro"
+                        }
+                    }
+                """);
+            }
+            return new HttpResponse(200, "{}");
+        });
+
+        using var client = new LicenseSeatClient(options, mockHttp);
+
+        // Use synchronous method
+        var license = client.Activate("SYNC-TEST-KEY");
+
+        Assert.NotNull(license);
+        Assert.Equal("SYNC-TEST-KEY", license.LicenseKey);
+    }
+
+    [Fact]
+    public void Validate_Sync_ReturnsValidationResult()
+    {
+        var options = CreateOptions();
+        var mockHttp = new MockHttpClient();
+        mockHttp.SetupPost((url, body) =>
+        {
+            if (url.Contains("/licenses/validate"))
+            {
+                return new HttpResponse(200, """
+                    {
+                        "valid": true,
+                        "license": {
+                            "license_key": "SYNC-VALIDATE-KEY",
+                            "status": "active"
+                        }
+                    }
+                """);
+            }
+            return new HttpResponse(200, "{}");
+        });
+
+        using var client = new LicenseSeatClient(options, mockHttp);
+
+        // Use synchronous method
+        var result = client.Validate("SYNC-VALIDATE-KEY");
+
+        Assert.True(result.Valid);
+        Assert.NotNull(result.License);
+        Assert.Equal("SYNC-VALIDATE-KEY", result.License!.LicenseKey);
+    }
+
+    [Fact]
+    public void Deactivate_Sync_ThrowsWhenNoActiveLicense()
+    {
+        var options = CreateOptions();
+        var mockHttp = new MockHttpClient();
+
+        using var client = new LicenseSeatClient(options, mockHttp);
+
+        // Should throw because no active license
+        var ex = Assert.Throws<LicenseException>(() => client.Deactivate());
+        Assert.Contains("No active license", ex.Message);
+    }
+
+    [Fact]
+    public void TestAuth_Sync_ReturnsTrue_WhenAuthenticated()
+    {
+        var options = CreateOptions();
+        var mockHttp = new MockHttpClient();
+        mockHttp.SetupGet(url =>
+        {
+            if (url.Contains("/test-auth"))
+            {
+                return new HttpResponse(200, """{"authenticated": true}""");
+            }
+            return new HttpResponse(200, "{}");
+        });
+
+        using var client = new LicenseSeatClient(options, mockHttp);
+
+        // Use synchronous method
+        var result = client.TestAuth();
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void SyncMethods_WorkWithCustomHttpAdapter_FromOptions()
+    {
+        // This test verifies that sync methods work when using HttpClientAdapter from options
+        var mockHttp = new MockHttpClient();
+        var wasCalled = false;
+        mockHttp.SetupPost((url, body) =>
+        {
+            wasCalled = true;
+            if (url.Contains("/activations/activate"))
+            {
+                return new HttpResponse(200, """
+                    {
+                        "success": true,
+                        "license": {
+                            "license_key": "TEST",
+                            "status": "active"
+                        }
+                    }
+                """);
+            }
+            return new HttpResponse(200, "{}");
+        });
+
+        var options = new LicenseSeatClientOptions
+        {
+            ApiKey = "test-api-key",
+            ApiBaseUrl = "https://api.test.com",
+            AutoInitialize = false,
+            AutoValidateInterval = TimeSpan.Zero,
+            HttpClientAdapter = mockHttp // Use adapter from options
+        };
+
+        // Use public constructor (not internal)
+        using var client = new LicenseSeatClient(options);
+
+        // Use synchronous method
+        var license = client.Activate("TEST");
+
+        Assert.True(wasCalled, "Custom HTTP adapter should be used");
+        Assert.NotNull(license);
+    }
+
+    #endregion
 }
