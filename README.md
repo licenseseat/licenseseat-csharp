@@ -179,7 +179,7 @@ if (result.Offline)
 
 ## Documentation
 
-For full API documentation, visit [docs.licenseseat.com](https://docs.licenseseat.com).
+For full API documentation, visit [licenseseat.com/docs](https://licenseseat.com/docs).
 
 ## Development
 
