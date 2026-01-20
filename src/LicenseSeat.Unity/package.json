@@ -1,6 +1,6 @@
 {
   "name": "com.licenseseat.sdk",
-  "version": "1.0.0",
+  "version": "0.2.0",
   "displayName": "LicenseSeat SDK",
   "description": "Pure C# licensing SDK for Unity. Provides seamless license activation, validation, and entitlement checking across all Unity platforms including WebGL, iOS, and Android.",
   "unity": "2021.3",
