@@ -256,7 +256,27 @@ You can also trigger a release manually from the Actions tab:
 3. Enter the version number (e.g., `1.0.0`)
 4. Check "Is this a prerelease?" if applicable
 
-> **Note:** Requires `NUGET_API_KEY` secret to be configured in repository settings.
+#### NuGet Trusted Publishing Setup
+
+This repository uses [NuGet Trusted Publishing](https://learn.microsoft.com/en-us/nuget/nuget-org/trusted-publishing) for secure, keyless authentication via OIDC. No API keys are stored as secrets.
+
+**Required configuration:**
+
+1. **GitHub Repository Variable:**
+   - Go to **Settings** → **Secrets and variables** → **Actions** → **Variables**
+   - Add `NUGET_USER` with your NuGet.org profile name (not email)
+
+2. **GitHub Environment:**
+   - Create an environment named `nuget-publish` in **Settings** → **Environments**
+
+3. **NuGet.org Trusted Publishing Policy:**
+   - Log in to [nuget.org](https://www.nuget.org)
+   - Go to your profile → **Trusted Publishing**
+   - Add a policy with:
+     - Repository Owner: `licenseseat`
+     - Repository: `licenseseat-csharp`
+     - Workflow: `release.yml`
+     - Environment: `nuget-publish`
 
 ## Contributing
 

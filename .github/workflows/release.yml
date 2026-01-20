@@ -93,6 +93,11 @@ jobs:
     needs: [validate, build]
     environment: nuget-publish
 
+    # Required for NuGet Trusted Publishing (OIDC)
+    permissions:
+      id-token: write
+      contents: read
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -123,10 +128,15 @@ jobs:
           ls -la ./packages/
           dotnet nuget verify ./packages/*.nupkg --all || true
 
+      # Obtain temporary API key via OIDC (Trusted Publishing)
+      - name: NuGet Login (Trusted Publishing)
+        uses: nuget/login@v1
+        with:
+          user: ${{ vars.NUGET_USER }}
+
       - name: Push to NuGet.org
         run: |
           dotnet nuget push ./packages/*.nupkg \
-            --api-key ${{ secrets.NUGET_API_KEY }} \
             --source https://api.nuget.org/v3/index.json \
             --skip-duplicate
 
