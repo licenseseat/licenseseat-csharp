@@ -2,76 +2,154 @@
 
 [![CI](https://github.com/licenseseat/licenseseat-csharp/actions/workflows/ci.yml/badge.svg)](https://github.com/licenseseat/licenseseat-csharp/actions/workflows/ci.yml)
 [![NuGet](https://img.shields.io/nuget/v/LicenseSeat.svg)](https://www.nuget.org/packages/LicenseSeat/)
+[![OpenUPM](https://img.shields.io/npm/v/com.licenseseat.sdk?label=openupm&registry_uri=https://package.openupm.com)](https://openupm.com/packages/com.licenseseat.sdk/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
-Official C# SDK for the [LicenseSeat](https://licenseseat.com) API. Validate licenses, manage activations, and check entitlements in your .NET applications.
+Official C# SDK for the [LicenseSeat](https://licenseseat.com) licensing platform. Add license validation to your app in minutes.
 
-## Features
+> [!TIP]
+> **Building a Unity game?** We have a dedicated [Unity SDK](#unity) with full IL2CPP, WebGL, iOS, and Android support. No DLLs. Just install via Unity Package Manager and go!
 
-- **License Management** - Activate, validate, and deactivate licenses
-- **Entitlement Checking** - Feature gating with expiration support
-- **Offline Validation** - Ed25519 signature verification for offline use
-- **Auto-Validation** - Configurable background validation
-- **Event System** - React to license state changes
-- **Dependency Injection** - First-class ASP.NET Core support
-- **Cross-Platform** - .NET Standard 2.0 compatible
+## Quick Start
 
-## Installation
-
+**Install:**
 ```bash
 dotnet add package LicenseSeat
 ```
 
-Or via the NuGet Package Manager:
-
-```
-Install-Package LicenseSeat
-```
-
-## Requirements
-
-- .NET Standard 2.0+ (compatible with .NET Framework 4.6.1+, .NET Core 2.0+, .NET 5+, Unity, Godot)
-
-## Quick Start
-
-### Basic Usage
-
+**Use:**
 ```csharp
 using LicenseSeat;
 
-// Create client
 var client = new LicenseSeatClient(new LicenseSeatClientOptions
 {
     ApiKey = "your-api-key"
 });
 
 // Activate a license
-var license = await client.ActivateAsync("LICENSE-KEY-HERE");
-Console.WriteLine($"License activated: {license.LicenseKey}");
+var license = await client.ActivateAsync("XXXX-XXXX-XXXX-XXXX");
 
 // Check entitlements
 if (client.HasEntitlement("pro-features"))
 {
     // Enable pro features
 }
-
-// Get license status
-var status = client.GetStatus();
-Console.WriteLine($"Status: {status.StatusType}");
 ```
 
-### Static API (Singleton Pattern)
+That's it. You're licensed.
+
+## Features
+
+| Feature                | Description                                     |
+| ---------------------- | ----------------------------------------------- |
+| **License Activation** | Activate, validate, and deactivate licenses     |
+| **Entitlements**       | Feature gating with usage limits and expiration |
+| **Offline Mode**       | Ed25519 signature verification when offline     |
+| **Auto-Validation**    | Background validation at configurable intervals |
+| **Events**             | React to license changes in real-time           |
+| **DI Support**         | First-class ASP.NET Core integration            |
+
+## Platform Support
+
+| Platform                               | Package | Install                          |
+| -------------------------------------- | ------- | -------------------------------- |
+| **.NET** (Console, ASP.NET, WPF, MAUI) | NuGet   | `dotnet add package LicenseSeat` |
+| **Godot 4**                            | NuGet   | `dotnet add package LicenseSeat` |
+| **Unity**                              | UPM     | [See Unity section](#unity)      |
+
+## Installation
+
+### NuGet (.NET, Godot)
+
+```bash
+dotnet add package LicenseSeat
+```
+
+**Requirements:** .NET Standard 2.0+ (.NET Framework 4.6.1+, .NET Core 2.0+, .NET 5+)
+
+### Unity
+
+> [!NOTE]
+> Unity has a dedicated SDK with WebGL, iOS, and Android support. Don't use NuGet for Unity - use the Package Manager instead.
+
+**Option 1: Git URL (Recommended)**
+
+1. Open **Window → Package Manager**
+2. Click **+** → **Add package from git URL...**
+3. Paste:
+   ```
+   https://github.com/licenseseat/licenseseat-csharp.git?path=src/LicenseSeat.Unity
+   ```
+
+**Option 2: manifest.json**
+
+Add to `Packages/manifest.json`:
+```json
+{
+  "dependencies": {
+    "com.licenseseat.sdk": "https://github.com/licenseseat/licenseseat-csharp.git?path=src/LicenseSeat.Unity"
+  }
+}
+```
+
+**Option 3: OpenUPM**
+```bash
+openupm add com.licenseseat.sdk
+```
+
+**Pin to a version:**
+```
+https://github.com/licenseseat/licenseseat-csharp.git?path=src/LicenseSeat.Unity#v0.2.0
+```
+
+## Usage Examples
+
+### Basic Client
 
 ```csharp
 using LicenseSeat;
 
-// Configure once at app startup
+var client = new LicenseSeatClient(new LicenseSeatClientOptions
+{
+    ApiKey = "your-api-key"
+});
+
+// Activate
+var license = await client.ActivateAsync("LICENSE-KEY");
+Console.WriteLine($"Activated: {license.LicenseKey}");
+
+// Validate
+var result = await client.ValidateAsync("LICENSE-KEY");
+if (result.Valid)
+{
+    Console.WriteLine("License is valid!");
+}
+
+// Check entitlements
+if (client.HasEntitlement("premium"))
+{
+    // Unlock premium features
+}
+
+// Get status
+var status = client.GetStatus();
+Console.WriteLine($"Status: {status.StatusType}");
+```
+
+### Static API (Singleton)
+
+Perfect for desktop apps where you want global access:
+
+```csharp
+using LicenseSeat;
+
+// Configure once at startup
 LicenseSeat.Configure("your-api-key", options =>
 {
     options.AutoValidateInterval = TimeSpan.FromHours(1);
 });
 
-// Use anywhere in your app
+// Use anywhere
 await LicenseSeat.Activate("LICENSE-KEY");
 
 if (LicenseSeat.HasEntitlement("premium"))
@@ -79,39 +157,33 @@ if (LicenseSeat.HasEntitlement("premium"))
     // Premium features
 }
 
-// Cleanup on shutdown
+// Cleanup on exit
 LicenseSeat.Shutdown();
 ```
 
-### ASP.NET Core Dependency Injection
+### ASP.NET Core
 
 ```csharp
-// In Program.cs or Startup.cs
-services.AddLicenseSeatClient("your-api-key");
-
-// Or with configuration
-services.AddLicenseSeatClient(options =>
+// Program.cs
+builder.Services.AddLicenseSeatClient(options =>
 {
     options.ApiKey = "your-api-key";
     options.AutoValidateInterval = TimeSpan.FromMinutes(30);
-    options.Debug = true;
 });
 ```
 
 ```csharp
-// In your controller or service
-public class MyController : ControllerBase
+// Your controller
+public class LicenseController : ControllerBase
 {
-    private readonly ILicenseSeatClient _licenseClient;
+    private readonly ILicenseSeatClient _client;
 
-    public MyController(ILicenseSeatClient licenseClient)
-    {
-        _licenseClient = licenseClient;
-    }
+    public LicenseController(ILicenseSeatClient client) => _client = client;
 
-    public async Task<IActionResult> CheckLicense()
+    [HttpGet("status")]
+    public IActionResult GetStatus()
     {
-        var status = _licenseClient.GetStatus();
+        var status = _client.GetStatus();
         return Ok(new { status.StatusType, status.Message });
     }
 }
@@ -120,85 +192,34 @@ public class MyController : ControllerBase
 ### Event Handling
 
 ```csharp
-var client = new LicenseSeatClient(options);
+client.Events.On(LicenseSeatEvents.LicenseValidated, _ =>
+    Console.WriteLine("License validated!"));
 
-// Subscribe to events
-client.Events.On(LicenseSeatEvents.LicenseValidated, data =>
-{
-    Console.WriteLine("License validated successfully!");
-});
+client.Events.On(LicenseSeatEvents.ValidationFailed, _ =>
+    Console.WriteLine("Validation failed!"));
 
-client.Events.On(LicenseSeatEvents.ValidationFailed, data =>
-{
-    Console.WriteLine("Validation failed - check your license");
-});
-
-client.Events.On(LicenseSeatEvents.EntitlementChanged, data =>
-{
-    Console.WriteLine("Entitlements updated");
-});
+client.Events.On(LicenseSeatEvents.EntitlementChanged, _ =>
+    Console.WriteLine("Entitlements updated!"));
 ```
 
 ### Offline Validation
 
 ```csharp
-var options = new LicenseSeatClientOptions
+var client = new LicenseSeatClient(new LicenseSeatClientOptions
 {
     ApiKey = "your-api-key",
-    OfflineFallbackMode = OfflineFallbackMode.NetworkOnly,
-    MaxOfflineDays = 7,  // Allow 7 days offline
-    MaxClockSkew = TimeSpan.FromMinutes(5)  // Clock tamper detection
-};
+    OfflineFallbackMode = OfflineFallbackMode.CacheFirst,
+    MaxOfflineDays = 7  // Allow 7 days offline
+});
 
-var client = new LicenseSeatClient(options);
-
-// Validation will fall back to offline when network is unavailable
 var result = await client.ValidateAsync("LICENSE-KEY");
-
 if (result.Offline)
 {
     Console.WriteLine("Validated offline with cached license");
 }
 ```
 
-## Configuration Options
-
-| Option                 | Default                       | Description                                      |
-| ---------------------- | ----------------------------- | ------------------------------------------------ |
-| `ApiKey`               | `null`                        | Your LicenseSeat API key (required)              |
-| `ApiBaseUrl`           | `https://licenseseat.com/api` | API base URL                                     |
-| `AutoValidateInterval` | 1 hour                        | Interval between auto-validations (0 to disable) |
-| `MaxRetries`           | 3                             | Maximum retry attempts for failed requests       |
-| `RetryDelay`           | 1 second                      | Base delay between retries (exponential backoff) |
-| `OfflineFallbackMode`  | `Disabled`                    | When to use offline validation                   |
-| `MaxOfflineDays`       | 0                             | Grace period for offline usage (0 = disabled)    |
-| `MaxClockSkew`         | 5 minutes                     | Tolerance for clock tamper detection             |
-| `Debug`                | `false`                       | Enable debug logging                             |
-| `HttpTimeout`          | 30 seconds                    | HTTP request timeout                             |
-
-## Game Engine Integration
-
-### Godot 4 (C#)
-
-Godot 4.x has native NuGet support - the SDK works out of the box.
-
-**Installation:**
-
-Add the package reference to your `.csproj` file:
-
-```xml
-<ItemGroup>
-    <PackageReference Include="LicenseSeat" Version="0.1.0" />
-</ItemGroup>
-```
-
-Or use the dotnet CLI:
-
-```bash
-dotnet add package LicenseSeat
-```
-
-**Usage in Godot:**
+### Godot 4
 
 ```csharp
 using Godot;
@@ -218,67 +239,18 @@ public partial class LicenseManager : Node
 
     public async void ValidateLicense(string licenseKey)
     {
-        try
-        {
-            var result = await _client.ValidateAsync(licenseKey);
-            if (result.Valid)
-            {
-                GD.Print("License is valid!");
-                // Unlock features
-            }
-            else
-            {
-                GD.Print($"License invalid: {result.Error}");
-            }
-        }
-        catch (Exception ex)
-        {
-            GD.PrintErr($"License check failed: {ex.Message}");
-        }
+        var result = await _client.ValidateAsync(licenseKey);
+        if (result.Valid)
+            GD.Print("License is valid!");
+        else
+            GD.Print($"Invalid: {result.Error}");
     }
 
-    public override void _ExitTree()
-    {
-        _client?.Dispose();
-    }
+    public override void _ExitTree() => _client?.Dispose();
 }
 ```
 
 ### Unity
-
-We provide a dedicated **Unity SDK** with full cross-platform support, including WebGL, iOS, and Android with IL2CPP.
-
-**Installation (Recommended - Unity Package Manager):**
-
-1. Open **Window → Package Manager**
-2. Click **+** → **Add package from git URL...**
-3. Enter:
-   ```
-   https://github.com/licenseseat/licenseseat-csharp.git?path=src/LicenseSeat.Unity
-   ```
-
-Or add directly to your `Packages/manifest.json`:
-
-```json
-{
-  "dependencies": {
-    "com.licenseseat.sdk": "https://github.com/licenseseat/licenseseat-csharp.git?path=src/LicenseSeat.Unity"
-  }
-}
-```
-
-**For a specific version:**
-```
-https://github.com/licenseseat/licenseseat-csharp.git?path=src/LicenseSeat.Unity#v0.2.0
-```
-
-**Installation (OpenUPM):**
-
-```bash
-openupm add com.licenseseat.sdk
-```
-
-**Usage in Unity:**
 
 ```csharp
 using UnityEngine;
@@ -299,42 +271,48 @@ public class LicenseController : MonoBehaviour
 
     public void ActivateLicense(string licenseKey)
     {
-        // Using coroutine for Unity-friendly async
         StartCoroutine(_manager.ActivateCoroutine(licenseKey, (license, error) =>
         {
             if (error != null)
             {
-                Debug.LogError($"Activation failed: {error.Message}");
+                Debug.LogError($"Failed: {error.Message}");
                 return;
             }
-            Debug.Log($"License activated: {license.LicenseKey}");
+            Debug.Log($"Activated: {license.LicenseKey}");
         }));
     }
 }
 ```
 
 **Unity SDK Features:**
+- **Pure C#** - No native DLLs, works everywhere
+- **IL2CPP Ready** - Automatic link.xml injection
+- **WebGL Support** - Uses UnityWebRequest
+- **Editor Tools** - Settings window, inspectors
+- **Samples** - Import from Package Manager
 
-- **Pure C#** - No native DLLs, works on all platforms
-- **IL2CPP Compatible** - Automatic link.xml injection via `IUnityLinkerProcessor`
-- **WebGL Support** - Uses `UnityWebRequest` instead of `HttpClient`
-- **Unity-Native** - ScriptableObject configuration, MonoBehaviour integration
-- **Editor Tools** - Settings window, custom inspectors
-- **Samples Included** - Basic usage and offline validation examples
+Full Unity docs: [src/LicenseSeat.Unity/README.md](src/LicenseSeat.Unity/README.md)
 
-For full Unity documentation, see [src/LicenseSeat.Unity/README.md](src/LicenseSeat.Unity/README.md).
+## Configuration
 
-### Windows Desktop Apps (WPF, WinForms, MAUI)
-
-The SDK works natively with all Windows desktop frameworks. Just install via NuGet:
-
-```bash
-dotnet add package LicenseSeat
-```
+| Option                 | Default                       | Description                                   |
+| ---------------------- | ----------------------------- | --------------------------------------------- |
+| `ApiKey`               | —                             | Your LicenseSeat API key **(required)**       |
+| `ApiBaseUrl`           | `https://licenseseat.com/api` | API endpoint                                  |
+| `AutoValidateInterval` | 1 hour                        | Background validation interval (0 = disabled) |
+| `MaxRetries`           | 3                             | Retry attempts for failed requests            |
+| `RetryDelay`           | 1 second                      | Base delay between retries                    |
+| `OfflineFallbackMode`  | `Disabled`                    | Offline validation mode                       |
+| `MaxOfflineDays`       | 0                             | Offline grace period (0 = disabled)           |
+| `MaxClockSkew`         | 5 minutes                     | Clock tamper tolerance                        |
+| `HttpTimeout`          | 30 seconds                    | Request timeout                               |
+| `Debug`                | `false`                       | Enable debug logging                          |
 
 ## Documentation
 
-For full API documentation, visit [licenseseat.com/docs](https://licenseseat.com/docs).
+Full API documentation: [licenseseat.com/docs](https://licenseseat.com/docs)
+
+---
 
 ## Development
 
@@ -342,147 +320,87 @@ For full API documentation, visit [licenseseat.com/docs](https://licenseseat.com
 
 - .NET SDK 9.0+
 
-### Building
+### Commands
 
 ```bash
+# Build
 dotnet build
-```
 
-### Testing
-
-```bash
+# Test
 dotnet test
-```
 
-### Running Tests with Coverage
-
-```bash
+# Test with coverage
 dotnet test --collect:"XPlat Code Coverage"
-```
 
-### Packaging
-
-```bash
+# Package
 dotnet pack --configuration Release --output ./artifacts
 ```
 
-### Releasing a New Version
+### Releasing
 
-This repository contains two distributable packages:
-- **NuGet Package** (`LicenseSeat`) - For .NET applications, Godot, etc.
-- **Unity Package** (`com.licenseseat.sdk`) - For Unity projects via UPM/OpenUPM
+This repo contains two packages:
+- **NuGet:** `LicenseSeat` for .NET/Godot
+- **Unity:** `com.licenseseat.sdk` for Unity via UPM
 
-#### Release Process
+#### Release Steps
 
-**1. Update versions in both packages:**
+1. **Update versions:**
+   ```bash
+   # src/LicenseSeat/LicenseSeat.csproj
+   <Version>1.0.0</Version>
 
-```bash
-# NuGet package version
-# Edit src/LicenseSeat/LicenseSeat.csproj
-<Version>1.0.0</Version>
+   # src/LicenseSeat.Unity/package.json
+   "version": "1.0.0"
 
-# Unity package version
-# Edit src/LicenseSeat.Unity/package.json
-"version": "1.0.0"
+   # src/LicenseSeat.Unity/CHANGELOG.md
+   ## [1.0.0] - YYYY-MM-DD
+   ```
 
-# Unity changelog
-# Edit src/LicenseSeat.Unity/CHANGELOG.md
-## [1.0.0] - YYYY-MM-DD
-```
+2. **Validate:**
+   ```bash
+   ./scripts/validate-unity-sync.sh
+   ./scripts/validate-unity-package.sh
+   ```
 
-**2. Ensure Unity files are in sync:**
+3. **Tag and release:**
+   ```bash
+   git add -A && git commit -m "Release v1.0.0"
+   git tag v1.0.0 && git push origin main v1.0.0
+   gh release create v1.0.0 --title "v1.0.0" --generate-notes
+   ```
 
-```bash
-./scripts/validate-unity-sync.sh
-./scripts/validate-unity-package.sh
-```
+4. **Automatic:** CI publishes to NuGet. Unity is available via Git tag:
+   ```
+   https://github.com/licenseseat/licenseseat-csharp.git?path=src/LicenseSeat.Unity#v1.0.0
+   ```
 
-**3. Commit and create a GitHub Release:**
-
-```bash
-git add -A
-git commit -m "Bump version to 1.0.0"
-git push
-
-# Create and push a tag
-git tag v1.0.0
-git push origin v1.0.0
-
-# Create the release
-gh release create v1.0.0 --title "v1.0.0" --notes "Release notes here"
-```
-
-**4. Automatic publishing**: The release workflow will:
-- Build and test both packages
-- Publish NuGet package to [NuGet.org](https://www.nuget.org/packages/LicenseSeat/)
-- Attach the `.nupkg` file to the GitHub release
-
-**5. Unity package is automatically available** via Git URL:
-```
-https://github.com/licenseseat/licenseseat-csharp.git?path=src/LicenseSeat.Unity#v1.0.0
-```
-
-#### OpenUPM Submission (One-Time Setup)
-
-To make the Unity package available via `openupm add`:
+#### OpenUPM (One-Time)
 
 1. Go to [openupm.com/packages/add](https://openupm.com/packages/add/)
-2. Enter repository URL: `https://github.com/licenseseat/licenseseat-csharp`
-3. The build pipelines will auto-detect `package.json` at `src/LicenseSeat.Unity/`
-4. Submit for review (typically approved within 24 hours)
+2. Submit: `https://github.com/licenseseat/licenseseat-csharp`
+3. OpenUPM auto-detects `src/LicenseSeat.Unity/package.json`
 
-After approval, OpenUPM automatically tracks new Git tags and publishes updates.
+After approval, new tags are automatically published.
 
-#### Version Guidelines
+#### NuGet Trusted Publishing
 
-| Type | Example | When to Use |
-|------|---------|-------------|
-| Major | `1.0.0` → `2.0.0` | Breaking API changes |
-| Minor | `1.0.0` → `1.1.0` | New features, backward compatible |
-| Patch | `1.0.0` → `1.0.1` | Bug fixes, backward compatible |
-| Prerelease | `1.0.0-beta.1` | Preview/testing versions |
+This repo uses [NuGet Trusted Publishing](https://learn.microsoft.com/en-us/nuget/nuget-org/trusted-publishing) (OIDC, no API keys).
 
-#### Manual Release (if needed)
+Setup:
+1. Add `NUGET_USER` variable in repo settings
+2. Create `nuget-publish` environment
+3. Configure trusted publishing policy on nuget.org
 
-You can trigger a release manually from the Actions tab:
-
-1. Go to **Actions** → **Release** workflow
-2. Click **Run workflow**
-3. Enter the version number (e.g., `1.0.0`)
-4. Check "Is this a prerelease?" if applicable
-
-#### NuGet Trusted Publishing Setup
-
-This repository uses [NuGet Trusted Publishing](https://learn.microsoft.com/en-us/nuget/nuget-org/trusted-publishing) for secure, keyless authentication via OIDC. No API keys are stored as secrets.
-
-**Required configuration:**
-
-1. **GitHub Repository Variable:**
-   - Go to **Settings** → **Secrets and variables** → **Actions** → **Variables**
-   - Add `NUGET_USER` with your NuGet.org profile name (not email)
-
-2. **GitHub Environment:**
-   - Create an environment named `nuget-publish` in **Settings** → **Environments**
-
-3. **NuGet.org Trusted Publishing Policy:**
-   - Log in to [nuget.org](https://www.nuget.org)
-   - Go to your profile → **Trusted Publishing**
-   - Add a policy with:
-     - Repository Owner: `licenseseat`
-     - Repository: `licenseseat-csharp`
-     - Workflow: `release.yml`
-     - Environment: `nuget-publish`
+---
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
-
 1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
+2. Create a feature branch: `git checkout -b feature/amazing`
+3. Commit changes: `git commit -m 'Add amazing feature'`
+4. Push: `git push origin feature/amazing`
 5. Open a Pull Request
 
 ## License
 
-MIT - see [LICENSE](LICENSE) for details.
+MIT - see [LICENSE](LICENSE)
