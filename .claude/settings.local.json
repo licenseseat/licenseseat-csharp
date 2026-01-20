@@ -13,7 +13,16 @@
       "Bash(grep:*)",
       "Bash(gh pr view:*)",
       "Bash(gh pr checks:*)",
-      "Bash(gh pr merge:*)"
+      "Bash(gh pr merge:*)",
+      "WebFetch(domain:docs.unity3d.com)",
+      "Bash(dotnet restore:*)",
+      "Bash(git checkout:*)",
+      "Bash(git add:*)",
+      "Bash(./scripts/validate-unity-sync.sh:*)",
+      "Bash(tree:*)",
+      "Bash(git log:*)",
+      "WebFetch(domain:openupm.com)",
+      "Bash(./scripts/validate-unity-package.sh:*)"
     ]
   }
 }
