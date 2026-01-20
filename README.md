@@ -2,7 +2,6 @@
 
 [![CI](https://github.com/licenseseat/licenseseat-csharp/actions/workflows/ci.yml/badge.svg)](https://github.com/licenseseat/licenseseat-csharp/actions/workflows/ci.yml)
 [![NuGet](https://img.shields.io/nuget/v/LicenseSeat.svg)](https://www.nuget.org/packages/LicenseSeat/)
-[![NuGet Downloads](https://img.shields.io/nuget/dt/LicenseSeat.svg)](https://www.nuget.org/packages/LicenseSeat/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
 Official C# SDK for the [LicenseSeat](https://licenseseat.com) API. Validate licenses, manage activations, and check entitlements in your .NET applications.
@@ -176,6 +175,175 @@ if (result.Offline)
 | `MaxClockSkew`         | 5 minutes                     | Tolerance for clock tamper detection             |
 | `Debug`                | `false`                       | Enable debug logging                             |
 | `HttpTimeout`          | 30 seconds                    | HTTP request timeout                             |
+
+## Game Engine Integration
+
+### Godot 4 (C#)
+
+Godot 4.x has native NuGet support - the SDK works out of the box.
+
+**Installation:**
+
+Add the package reference to your `.csproj` file:
+
+```xml
+<ItemGroup>
+    <PackageReference Include="LicenseSeat" Version="0.1.0" />
+</ItemGroup>
+```
+
+Or use the dotnet CLI:
+
+```bash
+dotnet add package LicenseSeat
+```
+
+**Usage in Godot:**
+
+```csharp
+using Godot;
+using LicenseSeat;
+
+public partial class LicenseManager : Node
+{
+    private LicenseSeatClient _client;
+
+    public override void _Ready()
+    {
+        _client = new LicenseSeatClient(new LicenseSeatClientOptions
+        {
+            ApiKey = "your-api-key"
+        });
+    }
+
+    public async void ValidateLicense(string licenseKey)
+    {
+        try
+        {
+            var result = await _client.ValidateAsync(licenseKey);
+            if (result.Valid)
+            {
+                GD.Print("License is valid!");
+                // Unlock features
+            }
+            else
+            {
+                GD.Print($"License invalid: {result.Error}");
+            }
+        }
+        catch (Exception ex)
+        {
+            GD.PrintErr($"License check failed: {ex.Message}");
+        }
+    }
+
+    public override void _ExitTree()
+    {
+        _client?.Dispose();
+    }
+}
+```
+
+### Unity
+
+Unity requires manual setup since it doesn't have native NuGet support.
+
+**Installation (Option 1 - NuGetForUnity):**
+
+1. Install [NuGetForUnity](https://github.com/GlitchEnzo/NuGetForUnity) via the Package Manager:
+   - Add package from git URL: `https://github.com/GlitchEnzo/NuGetForUnity.git?path=/src/NuGetForUnity`
+
+2. Go to **NuGet** → **Manage NuGet Packages** and search for `LicenseSeat`
+
+3. Click **Install**
+
+**Installation (Option 2 - Manual DLL):**
+
+1. Download the `.nupkg` from [NuGet.org](https://www.nuget.org/packages/LicenseSeat/)
+2. Rename to `.zip` and extract
+3. Copy the DLL from `lib/netstandard2.0/` to your Unity project's `Assets/Plugins/` folder
+4. Also copy the dependency DLLs:
+   - `System.Text.Json.dll`
+   - `BouncyCastle.Crypto.dll`
+   - `Microsoft.Extensions.DependencyInjection.Abstractions.dll`
+   - `Microsoft.Extensions.Options.dll`
+
+**Required: Add HttpClient Reference**
+
+Create a file named `csc.rsp` in your `Assets/` folder with:
+
+```
+-r:System.Net.Http.dll
+```
+
+**Usage in Unity:**
+
+```csharp
+using UnityEngine;
+using LicenseSeat;
+using System.Threading.Tasks;
+
+public class LicenseManager : MonoBehaviour
+{
+    private LicenseSeatClient _client;
+
+    void Start()
+    {
+        _client = new LicenseSeatClient(new LicenseSeatClientOptions
+        {
+            ApiKey = "your-api-key"
+        });
+    }
+
+    public async void ValidateLicense(string licenseKey)
+    {
+        try
+        {
+            var result = await _client.ValidateAsync(licenseKey);
+            if (result.Valid)
+            {
+                Debug.Log("License is valid!");
+                // Unlock features
+            }
+            else
+            {
+                Debug.LogWarning($"License invalid: {result.Error}");
+            }
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogError($"License check failed: {ex.Message}");
+        }
+    }
+
+    void OnDestroy()
+    {
+        _client?.Dispose();
+    }
+}
+```
+
+**Unity Tips:**
+
+- Always dispose the client in `OnDestroy()` to prevent memory leaks
+- For WebGL builds, async HTTP may have limitations - consider using offline validation
+- If building for iOS/Android with IL2CPP, add a `link.xml` file to preserve SDK types:
+
+```xml
+<linker>
+    <assembly fullname="LicenseSeat" preserve="all"/>
+    <assembly fullname="System.Text.Json" preserve="all"/>
+    <assembly fullname="BouncyCastle.Crypto" preserve="all"/>
+</linker>
+```
+
+### Windows Desktop Apps (WPF, WinForms, MAUI)
+
+The SDK works natively with all Windows desktop frameworks. Just install via NuGet:
+
+```bash
+dotnet add package LicenseSeat
+```
 
 ## Documentation
 
