@@ -164,18 +164,18 @@ if (result.Offline)
 
 ## Configuration Options
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `ApiKey` | `null` | Your LicenseSeat API key (required) |
-| `ApiBaseUrl` | `https://licenseseat.com/api` | API base URL |
-| `AutoValidateInterval` | 1 hour | Interval between auto-validations (0 to disable) |
-| `MaxRetries` | 3 | Maximum retry attempts for failed requests |
-| `RetryDelay` | 1 second | Base delay between retries (exponential backoff) |
-| `OfflineFallbackMode` | `Disabled` | When to use offline validation |
-| `MaxOfflineDays` | 0 | Grace period for offline usage (0 = disabled) |
-| `MaxClockSkew` | 5 minutes | Tolerance for clock tamper detection |
-| `Debug` | `false` | Enable debug logging |
-| `HttpTimeout` | 30 seconds | HTTP request timeout |
+| Option                 | Default                       | Description                                      |
+| ---------------------- | ----------------------------- | ------------------------------------------------ |
+| `ApiKey`               | `null`                        | Your LicenseSeat API key (required)              |
+| `ApiBaseUrl`           | `https://licenseseat.com/api` | API base URL                                     |
+| `AutoValidateInterval` | 1 hour                        | Interval between auto-validations (0 to disable) |
+| `MaxRetries`           | 3                             | Maximum retry attempts for failed requests       |
+| `RetryDelay`           | 1 second                      | Base delay between retries (exponential backoff) |
+| `OfflineFallbackMode`  | `Disabled`                    | When to use offline validation                   |
+| `MaxOfflineDays`       | 0                             | Grace period for offline usage (0 = disabled)    |
+| `MaxClockSkew`         | 5 minutes                     | Tolerance for clock tamper detection             |
+| `Debug`                | `false`                       | Enable debug logging                             |
+| `HttpTimeout`          | 30 seconds                    | HTTP request timeout                             |
 
 ## Documentation
 
@@ -224,9 +224,3 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 ## License
 
 MIT - see [LICENSE](LICENSE) for details.
-
-## Support
-
-- **Issues**: [GitHub Issues](https://github.com/licenseseat/licenseseat-csharp/issues)
-- **Documentation**: [docs.licenseseat.com](https://docs.licenseseat.com)
-- **Email**: support@licenseseat.com
