@@ -56,6 +56,20 @@ jobs:
           retention-days: 7
 
   # ============================================================
+  # Unity Package Sync Validation
+  # ============================================================
+  unity-sync:
+    name: Unity Package Sync
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Validate Unity Core files are in sync
+        run: ./scripts/validate-unity-sync.sh
+
+  # ============================================================
   # Code Quality
   # ============================================================
   quality:

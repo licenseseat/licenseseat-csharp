@@ -133,23 +133,23 @@ var options = new LicenseSeatClientOptions
 
 ### Code Sharing with Core SDK
 
-The Unity package shares source code with the core C# SDK via symbolic links. This ensures:
-- Single source of truth - changes to core SDK automatically reflect in Unity
-- No out-of-sync bugs between NuGet and Unity packages
-- Easier maintenance
+The Unity package contains copies of the core C# SDK source files in `Runtime/Core/`. These files are kept in sync with the main SDK through:
 
-The `Runtime/Core/` directory contains symlinks to `../../LicenseSeat/`:
-- `LicenseSeatClient.cs` → Core SDK
-- `Models/` → Core SDK models
-- etc.
+1. **CI Validation** - Every PR validates that Unity Core files match the Core SDK
+2. **Sync Scripts** - Developers can run sync scripts after modifying the core SDK
 
-**For Windows users** (if symlinks don't work):
-```powershell
-# Replace symlinks with copies
+**After modifying the Core SDK**, run:
+```bash
+# Bash (macOS/Linux)
+./scripts/sync-unity-core.sh --replace-symlinks
+
+# PowerShell (Windows)
 .\scripts\sync-unity-core.ps1 -ReplaceSymlinks
+```
 
-# After enabling Developer Mode, restore symlinks
-.\scripts\sync-unity-core.ps1 -RestoreSymlinks
+**To check sync status:**
+```bash
+./scripts/validate-unity-sync.sh
 ```
 
 ## Documentation
