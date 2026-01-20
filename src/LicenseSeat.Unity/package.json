@@ -5,6 +5,7 @@
   "description": "Pure C# licensing SDK for Unity. Provides seamless license activation, validation, and entitlement checking across all Unity platforms including WebGL, iOS, and Android.",
   "unity": "2021.3",
   "unityRelease": "0f1",
+  "license": "MIT",
   "documentationUrl": "https://docs.licenseseat.com/sdk/unity",
   "changelogUrl": "https://github.com/licenseseat/licenseseat-csharp/blob/main/src/LicenseSeat.Unity/CHANGELOG.md",
   "licensesUrl": "https://github.com/licenseseat/licenseseat-csharp/blob/main/LICENSE",

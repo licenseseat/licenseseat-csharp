@@ -77,7 +77,7 @@ echo "2. Validating package.json..."
 
 if [ -f "$UNITY_PKG/package.json" ]; then
     # Check required fields
-    REQUIRED_FIELDS=("name" "version" "displayName" "description" "unity")
+    REQUIRED_FIELDS=("name" "version" "displayName" "description" "unity" "license")
 
     for field in "${REQUIRED_FIELDS[@]}"; do
         if grep -q "\"$field\"" "$UNITY_PKG/package.json"; then
@@ -328,11 +328,19 @@ else
     error "Package name must be lowercase for OpenUPM"
 fi
 
-# Check for license field or file
-if grep -q '"license"' "$UNITY_PKG/package.json" || [ -f "$UNITY_PKG/LICENSE" ]; then
-    ok "License is specified"
+# Check for license SPDX identifier in package.json (required for OpenUPM)
+if grep -q '"license"' "$UNITY_PKG/package.json"; then
+    LICENSE_ID=$(grep '"license"' "$UNITY_PKG/package.json" | head -1 | sed 's/.*"license"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
+    ok "License SPDX identifier: $LICENSE_ID"
 else
-    error "License must be specified for OpenUPM"
+    error "Missing 'license' field in package.json (SPDX identifier required for OpenUPM)"
+fi
+
+# Check for LICENSE file
+if [ -f "$UNITY_PKG/LICENSE" ]; then
+    ok "LICENSE file exists"
+else
+    warn "LICENSE file missing (recommended)"
 fi
 
 echo ""
