@@ -1,0 +1,23 @@
+{
+    "name": "LicenseSeat.Unity.Tests.Editor",
+    "rootNamespace": "LicenseSeat.Unity.Tests.Editor",
+    "references": [
+        "LicenseSeat.Unity.Runtime",
+        "LicenseSeat.Unity.Editor"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "nunit.framework.dll"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
