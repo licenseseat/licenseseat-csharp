@@ -19,7 +19,7 @@ public sealed class License
     /// Gets or sets the device ID associated with this license activation.
     /// </summary>
     [JsonPropertyName("device_id")]
-    public string? DeviceId { get; set; }
+    public string DeviceId { get; set; } = string.Empty;
 
     /// <summary>
     /// Gets or sets the license status.
@@ -41,7 +41,7 @@ public sealed class License
     public DateTimeOffset? ExpiresAt { get; set; }
 
     /// <summary>
-    /// Gets or sets the license mode (e.g., "hardware_locked", "named_user").
+    /// Gets or sets the license mode (e.g., "hardware_locked", "floating").
     /// </summary>
     [JsonPropertyName("mode")]
     public string? Mode { get; set; }
@@ -113,17 +113,14 @@ public sealed class License
     public bool IsActive => Status?.Equals("active", StringComparison.OrdinalIgnoreCase) == true && !IsExpired;
 
     /// <summary>
-    /// Creates a License instance from API license data.
+    /// Creates a License from API response data.
     /// </summary>
-    /// <param name="data">The license data from the API.</param>
-    /// <param name="deviceId">The device ID for this activation.</param>
-    /// <returns>A License instance.</returns>
     internal static License FromLicenseData(LicenseData data, string? deviceId = null)
     {
         var license = new License
         {
             Key = data.Key ?? string.Empty,
-            DeviceId = deviceId,
+            DeviceId = deviceId ?? string.Empty,
             Status = data.Status,
             Mode = data.Mode,
             PlanKey = data.PlanKey,
@@ -142,33 +139,31 @@ public sealed class License
             license.ExpiresAt = expiresAt;
         }
 
+        if (data.Product != null)
+        {
+            license.Product = new Product
+            {
+                Slug = data.Product.Slug ?? string.Empty,
+                Name = data.Product.Name
+            };
+        }
+
         if (data.ActiveEntitlements != null)
         {
             license.ActiveEntitlements = new List<Entitlement>();
             foreach (var ent in data.ActiveEntitlements)
             {
-                var entitlement = new Entitlement
-                {
-                    Key = ent.Key ?? string.Empty,
-                    Metadata = ent.Metadata
-                };
-
+                var entitlement = new Entitlement { Key = ent.Key ?? string.Empty };
                 if (!string.IsNullOrEmpty(ent.ExpiresAt) && DateTimeOffset.TryParse(ent.ExpiresAt, out var entExpiresAt))
                 {
                     entitlement.ExpiresAt = entExpiresAt;
                 }
-
+                if (ent.Metadata != null)
+                {
+                    entitlement.Metadata = ent.Metadata;
+                }
                 license.ActiveEntitlements.Add(entitlement);
             }
-        }
-
-        if (data.Product != null)
-        {
-            license.Product = new Product
-            {
-                Slug = data.Product.Slug,
-                Name = data.Product.Name
-            };
         }
 
         return license;

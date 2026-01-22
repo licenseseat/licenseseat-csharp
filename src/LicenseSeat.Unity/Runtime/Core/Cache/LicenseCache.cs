@@ -102,9 +102,9 @@ internal sealed class LicenseCache
     }
 
     /// <summary>
-    /// Gets the device identifier from the cache.
+    /// Gets the device ID.
     /// </summary>
-    /// <returns>The device identifier, or null if not set.</returns>
+    /// <returns>The device ID, or null if not set.</returns>
     public string? GetDeviceId()
     {
         lock (_lock)
@@ -114,9 +114,9 @@ internal sealed class LicenseCache
     }
 
     /// <summary>
-    /// Sets the device identifier in the cache.
+    /// Sets the device ID.
     /// </summary>
-    /// <param name="deviceId">The device identifier.</param>
+    /// <param name="deviceId">The device ID.</param>
     public void SetDeviceId(string deviceId)
     {
         lock (_lock)

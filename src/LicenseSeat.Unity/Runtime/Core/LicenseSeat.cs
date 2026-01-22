@@ -11,7 +11,7 @@ namespace LicenseSeat;
 /// <example>
 /// <code>
 /// // Configure at startup
-/// LicenseSeat.Configure("your-api-key");
+/// LicenseSeat.Configure("your-api-key", "your-product-slug");
 ///
 /// // Use anywhere in your app
 /// var license = await LicenseSeat.Activate("LICENSE-KEY");
@@ -25,7 +25,7 @@ public static class LicenseSeat
 
     /// <summary>
     /// Gets the shared singleton instance.
-    /// Returns null if <see cref="Configure(string, Action{LicenseSeatClientOptions}?)"/> has not been called.
+    /// Returns null if <see cref="Configure(string, string, Action{LicenseSeatClientOptions}?)"/> has not been called.
     /// </summary>
     public static LicenseSeatClient? Shared
     {
@@ -53,31 +53,37 @@ public static class LicenseSeat
     }
 
     /// <summary>
-    /// Configures the shared singleton instance with the specified API key.
+    /// Configures the shared singleton instance with the specified API key and product slug.
     /// </summary>
     /// <param name="apiKey">Your LicenseSeat API key.</param>
+    /// <param name="productSlug">The product slug for API requests.</param>
     /// <param name="configure">Optional action to customize configuration options.</param>
     /// <returns>The configured client instance.</returns>
     /// <example>
     /// <code>
     /// // Simple configuration
-    /// LicenseSeat.Configure("your-api-key");
+    /// LicenseSeat.Configure("your-api-key", "your-product");
     ///
     /// // With custom options
-    /// LicenseSeat.Configure("your-api-key", options => {
+    /// LicenseSeat.Configure("your-api-key", "your-product", options => {
     ///     options.ApiBaseUrl = "https://custom.api.com";
     ///     options.Debug = true;
     /// });
     /// </code>
     /// </example>
-    public static LicenseSeatClient Configure(string apiKey, Action<LicenseSeatClientOptions>? configure = null)
+    public static LicenseSeatClient Configure(string apiKey, string productSlug, Action<LicenseSeatClientOptions>? configure = null)
     {
         if (string.IsNullOrWhiteSpace(apiKey))
         {
             throw new ArgumentException("API key cannot be empty", nameof(apiKey));
         }
 
-        var options = new LicenseSeatClientOptions(apiKey);
+        if (string.IsNullOrWhiteSpace(productSlug))
+        {
+            throw new ArgumentException("Product slug cannot be empty", nameof(productSlug));
+        }
+
+        var options = new LicenseSeatClientOptions(apiKey, productSlug);
         configure?.Invoke(options);
 
         lock (_sharedLock)

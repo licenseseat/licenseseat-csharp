@@ -44,8 +44,8 @@ public sealed class LicenseSeatClientOptions
     public string? ApiKey { get; set; }
 
     /// <summary>
-    /// Gets or sets the product slug for the product being licensed.
-    /// Required for all API requests.
+    /// Gets or sets the product slug for API requests.
+    /// Required for all license operations.
     /// </summary>
     public string? ProductSlug { get; set; }
 
@@ -128,10 +128,10 @@ public sealed class LicenseSeatClientOptions
     public bool AutoInitialize { get; set; } = true;
 
     /// <summary>
-    /// Gets or sets a custom device identifier.
-    /// If not set, a device identifier will be automatically generated.
+    /// Gets or sets a custom device ID.
+    /// If not set, a device ID will be automatically generated.
     /// </summary>
-    public string? DeviceIdentifier { get; set; }
+    public string? DeviceId { get; set; }
 
     /// <summary>
     /// Gets or sets the HTTP request timeout.
@@ -159,10 +159,19 @@ public sealed class LicenseSeatClientOptions
     }
 
     /// <summary>
+    /// Creates a new instance of <see cref="LicenseSeatClientOptions"/> with the specified API key.
+    /// </summary>
+    /// <param name="apiKey">The API key for authentication.</param>
+    public LicenseSeatClientOptions(string apiKey)
+    {
+        ApiKey = apiKey ?? throw new ArgumentNullException(nameof(apiKey));
+    }
+
+    /// <summary>
     /// Creates a new instance of <see cref="LicenseSeatClientOptions"/> with the specified API key and product slug.
     /// </summary>
     /// <param name="apiKey">The API key for authentication.</param>
-    /// <param name="productSlug">The product slug for the product being licensed.</param>
+    /// <param name="productSlug">The product slug for API requests.</param>
     public LicenseSeatClientOptions(string apiKey, string productSlug)
     {
         ApiKey = apiKey ?? throw new ArgumentNullException(nameof(apiKey));
@@ -191,7 +200,7 @@ public sealed class LicenseSeatClientOptions
             MaxOfflineDays = MaxOfflineDays,
             MaxClockSkew = MaxClockSkew,
             AutoInitialize = AutoInitialize,
-            DeviceIdentifier = DeviceIdentifier,
+            DeviceId = DeviceId,
             HttpTimeout = HttpTimeout,
             HttpClientAdapter = HttpClientAdapter
         };
@@ -203,16 +212,6 @@ public sealed class LicenseSeatClientOptions
     /// <exception cref="InvalidOperationException">Thrown when validation fails.</exception>
     public void Validate()
     {
-        if (string.IsNullOrWhiteSpace(ApiKey))
-        {
-            throw new InvalidOperationException("ApiKey is required.");
-        }
-
-        if (string.IsNullOrWhiteSpace(ProductSlug))
-        {
-            throw new InvalidOperationException("ProductSlug is required.");
-        }
-
         if (string.IsNullOrWhiteSpace(ApiBaseUrl))
         {
             throw new InvalidOperationException("ApiBaseUrl cannot be empty.");
@@ -222,6 +221,11 @@ public sealed class LicenseSeatClientOptions
             (uri.Scheme != "http" && uri.Scheme != "https"))
         {
             throw new InvalidOperationException("ApiBaseUrl must be a valid HTTP or HTTPS URL.");
+        }
+
+        if (string.IsNullOrWhiteSpace(ProductSlug))
+        {
+            throw new InvalidOperationException("ProductSlug is required for all license operations.");
         }
 
         if (MaxRetries < 0)

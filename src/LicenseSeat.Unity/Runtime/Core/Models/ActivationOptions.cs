@@ -8,16 +8,15 @@ namespace LicenseSeat;
 public sealed class ActivationOptions
 {
     /// <summary>
-    /// Gets or sets a custom device identifier.
-    /// If not set, a device identifier will be automatically generated.
+    /// Gets or sets a custom device ID.
+    /// If not set, a device ID will be automatically generated.
     /// </summary>
-    public string? DeviceIdentifier { get; set; }
+    public string? DeviceId { get; set; }
 
     /// <summary>
-    /// Gets or sets the software release date for version-locked licenses.
-    /// Format: ISO 8601 date string (e.g., "2024-01-15").
+    /// Gets or sets the device name (human-readable).
     /// </summary>
-    public string? SoftwareReleaseDate { get; set; }
+    public string? DeviceName { get; set; }
 
     /// <summary>
     /// Gets or sets additional metadata to store with the activation.
@@ -32,12 +31,12 @@ public sealed class ActivationOptions
     }
 
     /// <summary>
-    /// Creates a new instance of <see cref="ActivationOptions"/> with the specified device identifier.
+    /// Creates a new instance of <see cref="ActivationOptions"/> with the specified device ID.
     /// </summary>
-    /// <param name="deviceIdentifier">The device identifier.</param>
-    public ActivationOptions(string deviceIdentifier)
+    /// <param name="deviceId">The device ID.</param>
+    public ActivationOptions(string deviceId)
     {
-        DeviceIdentifier = deviceIdentifier;
+        DeviceId = deviceId;
     }
 }
 
@@ -47,15 +46,10 @@ public sealed class ActivationOptions
 public sealed class ValidationOptions
 {
     /// <summary>
-    /// Gets or sets a custom device identifier to use for validation.
-    /// If not set, the cached device identifier will be used.
+    /// Gets or sets a custom device ID to use for validation.
+    /// If not set, the cached device ID will be used.
     /// </summary>
-    public string? DeviceIdentifier { get; set; }
-
-    /// <summary>
-    /// Gets or sets a specific product slug to validate against.
-    /// </summary>
-    public string? ProductSlug { get; set; }
+    public string? DeviceId { get; set; }
 
     /// <summary>
     /// Creates a new instance of <see cref="ValidationOptions"/> with default values.

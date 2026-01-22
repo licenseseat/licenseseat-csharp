@@ -488,3 +488,68 @@ internal sealed class HealthResponse
     [JsonPropertyName("timestamp")]
     public string? Timestamp { get; set; }
 }
+
+/// <summary>
+/// Release data in API responses.
+/// </summary>
+public sealed class ReleaseData
+{
+    /// <summary>Gets or sets the object type.</summary>
+    [JsonPropertyName("object")]
+    public string? Object { get; set; }
+
+    /// <summary>Gets or sets the version.</summary>
+    [JsonPropertyName("version")]
+    public string? Version { get; set; }
+
+    /// <summary>Gets or sets the release channel.</summary>
+    [JsonPropertyName("channel")]
+    public string? Channel { get; set; }
+
+    /// <summary>Gets or sets the platform.</summary>
+    [JsonPropertyName("platform")]
+    public string? Platform { get; set; }
+
+    /// <summary>Gets or sets when the release was published.</summary>
+    [JsonPropertyName("published_at")]
+    public string? PublishedAt { get; set; }
+
+    /// <summary>Gets or sets the product slug.</summary>
+    [JsonPropertyName("product_slug")]
+    public string? ProductSlug { get; set; }
+}
+
+/// <summary>
+/// List response wrapper.
+/// </summary>
+internal sealed class ListResponse<T>
+{
+    [JsonPropertyName("object")]
+    public string? Object { get; set; }
+
+    [JsonPropertyName("data")]
+    public List<T>? Data { get; set; }
+
+    [JsonPropertyName("has_more")]
+    public bool HasMore { get; set; }
+
+    [JsonPropertyName("next_cursor")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? NextCursor { get; set; }
+}
+
+/// <summary>
+/// Download token response.
+/// POST /products/{slug}/releases/{version}/download-token
+/// </summary>
+internal sealed class DownloadTokenResponse
+{
+    [JsonPropertyName("object")]
+    public string? Object { get; set; }
+
+    [JsonPropertyName("token")]
+    public string? Token { get; set; }
+
+    [JsonPropertyName("expires_at")]
+    public string? ExpiresAt { get; set; }
+}

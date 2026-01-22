@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Text.Json.Serialization;
 
 namespace LicenseSeat;
@@ -17,8 +18,8 @@ public sealed class ActivationResult
     /// <summary>
     /// Gets or sets the activation ID.
     /// </summary>
-    [JsonPropertyName("activation_id")]
-    public string? ActivationId { get; set; }
+    [JsonPropertyName("id")]
+    public string? Id { get; set; }
 
     /// <summary>
     /// Gets or sets the license key that was activated.
@@ -27,10 +28,16 @@ public sealed class ActivationResult
     public string? LicenseKey { get; set; }
 
     /// <summary>
-    /// Gets or sets the device identifier used for activation.
+    /// Gets or sets the device ID used for activation.
     /// </summary>
-    [JsonPropertyName("device_identifier")]
-    public string? DeviceIdentifier { get; set; }
+    [JsonPropertyName("device_id")]
+    public string? DeviceId { get; set; }
+
+    /// <summary>
+    /// Gets or sets the device name.
+    /// </summary>
+    [JsonPropertyName("device_name")]
+    public string? DeviceName { get; set; }
 
     /// <summary>
     /// Gets or sets when the activation occurred.
@@ -39,14 +46,50 @@ public sealed class ActivationResult
     public DateTimeOffset? ActivatedAt { get; set; }
 
     /// <summary>
+    /// Gets or sets the IP address used for activation.
+    /// </summary>
+    [JsonPropertyName("ip_address")]
+    public string? IpAddress { get; set; }
+
+    /// <summary>
     /// Gets or sets the license data from activation.
     /// </summary>
     [JsonPropertyName("license")]
     public License? License { get; set; }
 
     /// <summary>
-    /// Gets or sets any additional message from the server.
+    /// Gets or sets metadata associated with the activation.
     /// </summary>
-    [JsonPropertyName("message")]
-    public string? Message { get; set; }
+    [JsonPropertyName("metadata")]
+    public Dictionary<string, object>? Metadata { get; set; }
+
+    /// <summary>
+    /// Creates an ActivationResult from an API response.
+    /// </summary>
+    internal static ActivationResult FromResponse(ActivationResponse response, string deviceId)
+    {
+        var result = new ActivationResult
+        {
+            Success = true,
+            Id = response.Id,
+            LicenseKey = response.LicenseKey,
+            DeviceId = response.DeviceId ?? deviceId,
+            DeviceName = response.DeviceName,
+            IpAddress = response.IpAddress,
+            Metadata = response.Metadata
+        };
+
+        if (!string.IsNullOrEmpty(response.ActivatedAt) && DateTimeOffset.TryParse(response.ActivatedAt, out var activatedAt))
+        {
+            result.ActivatedAt = activatedAt;
+        }
+
+        if (response.License != null)
+        {
+            result.License = License.FromLicenseData(response.License, deviceId);
+            result.License.ActivatedAt = result.ActivatedAt;
+        }
+
+        return result;
+    }
 }
