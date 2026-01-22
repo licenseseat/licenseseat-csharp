@@ -512,6 +512,42 @@ dotnet run --project tests/StressTest
 
 > **Note:** Integration tests require a valid LicenseSeat account and license. Tests may fail if the license seat limit is reached.
 
+### Development Workflow
+
+#### Before Pushing / Submitting a PR
+
+Run these checks before pushing any changes:
+
+```bash
+# 1. Build and run unit tests
+dotnet build
+dotnet test
+
+# 2. Ensure Unity SDK is in sync with main SDK
+./scripts/validate-unity-sync.sh
+
+# If out of sync, run:
+./scripts/sync-unity-core.sh --replace-symlinks
+
+# 3. Validate Unity package structure
+./scripts/validate-unity-package.sh
+```
+
+> **Important:** The Unity SDK shares core files with the main SDK. After modifying any files in `src/LicenseSeat/`, you must sync them to the Unity package using the sync script.
+
+#### Before Releasing
+
+1. Ensure all CI checks pass
+2. Run the full validation suite:
+   ```bash
+   dotnet build --configuration Release
+   dotnet test --configuration Release
+   ./scripts/validate-unity-sync.sh
+   ./scripts/validate-unity-package.sh
+   ```
+3. Update version numbers (see Release Steps below)
+4. Update CHANGELOG.md
+
 ### Releasing
 
 This repo contains two packages:
