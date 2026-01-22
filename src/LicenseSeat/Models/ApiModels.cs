@@ -44,7 +44,7 @@ internal sealed class ValidationRequest
 
 /// <summary>
 /// Request model for generating an offline token.
-/// POST /products/{slug}/licenses/{key}/offline-token
+/// POST /products/{slug}/licenses/{key}/offline_token
 /// </summary>
 internal sealed class OfflineTokenRequest
 {
@@ -324,7 +324,7 @@ public sealed class ProductData
 
 /// <summary>
 /// Response model for signing key endpoint.
-/// GET /signing-keys/{key_id}
+/// GET /signing_keys/{key_id}
 /// </summary>
 internal sealed class SigningKeyResponse
 {
@@ -350,7 +350,7 @@ internal sealed class SigningKeyResponse
 
 /// <summary>
 /// Offline token response model.
-/// POST /products/{slug}/licenses/{key}/offline-token
+/// POST /products/{slug}/licenses/{key}/offline_token
 /// </summary>
 public sealed class OfflineTokenResponse
 {
@@ -540,7 +540,7 @@ internal sealed class ListResponse<T>
 
 /// <summary>
 /// Download token response.
-/// POST /products/{slug}/releases/{version}/download-token
+/// POST /products/{slug}/releases/{version}/download_token
 /// </summary>
 internal sealed class DownloadTokenResponse
 {

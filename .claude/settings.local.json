@@ -25,7 +25,9 @@
       "Bash(./scripts/validate-unity-package.sh:*)",
       "Bash(dotnet run:*)",
       "Bash(gh run view:*)",
-      "Bash(./scripts/sync-unity-core.sh:*)"
+      "Bash(./scripts/sync-unity-core.sh:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nrefactor: Use underscores in API endpoint URLs\n\nChanged API endpoint URLs to use underscores instead of hyphens\nfor consistency with Stripe API conventions:\n\n- /signing-keys/{key_id} → /signing_keys/{key_id}\n- /offline-token → /offline_token\n- /download-token → /download_token\n\nUpdated in:\n- Main SDK \\(LicenseSeatClient.cs, ApiModels.cs\\)\n- Unity SDK \\(synced from main\\)\n- Integration tests \\(StressTest\\)\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git push)"
     ]
   }
 }

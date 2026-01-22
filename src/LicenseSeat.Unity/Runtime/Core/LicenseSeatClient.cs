@@ -640,7 +640,7 @@ public sealed class LicenseSeatClient : ILicenseSeatClient
             };
 
             var response = await _apiClient.PostAsync<OfflineTokenRequest, OfflineTokenResponse>(
-                $"/products/{_options.ProductSlug}/licenses/{licenseKey}/offline-token",
+                $"/products/{_options.ProductSlug}/licenses/{licenseKey}/offline_token",
                 request,
                 cancellationToken
             ).ConfigureAwait(false);
@@ -658,7 +658,7 @@ public sealed class LicenseSeatClient : ILicenseSeatClient
     private async Task<string> GetSigningKeyAsync(string keyId, CancellationToken cancellationToken)
     {
         var response = await _apiClient.GetAsync<SigningKeyResponse>(
-            $"/signing-keys/{keyId}",
+            $"/signing_keys/{keyId}",
             cancellationToken
         ).ConfigureAwait(false);
 

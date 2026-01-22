@@ -284,7 +284,7 @@ public static class UserJourneyTest
             var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
 
             var response = await httpClient.PostAsync(
-                $"https://licenseseat.com/api/v1/products/{PRODUCT_SLUG}/licenses/{LICENSE_KEY}/offline-token",
+                $"https://licenseseat.com/api/v1/products/{PRODUCT_SLUG}/licenses/{LICENSE_KEY}/offline_token",
                 content);
 
             Assert(response.IsSuccessStatusCode, $"Should fetch offline token, got {response.StatusCode}");
@@ -304,7 +304,7 @@ public static class UserJourneyTest
 
             // Verify signature
             var sigKeyResponse = await httpClient.GetAsync(
-                $"https://licenseseat.com/api/v1/signing-keys/{offlineToken.Signature!.KeyId}");
+                $"https://licenseseat.com/api/v1/signing_keys/{offlineToken.Signature!.KeyId}");
             var sigKeyBody = await sigKeyResponse.Content.ReadAsStringAsync();
             var sigKey = JsonSerializer.Deserialize<SigningKeyResponse>(sigKeyBody,
                 new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
@@ -399,14 +399,14 @@ public static class UserJourneyTest
             var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
 
             var response = await httpClient.PostAsync(
-                $"https://licenseseat.com/api/v1/products/{PRODUCT_SLUG}/licenses/{LICENSE_KEY}/offline-token",
+                $"https://licenseseat.com/api/v1/products/{PRODUCT_SLUG}/licenses/{LICENSE_KEY}/offline_token",
                 content);
             var responseBody = await response.Content.ReadAsStringAsync();
             var offlineToken = JsonSerializer.Deserialize<OfflineTokenResponse>(responseBody);
 
             // Get public key
             var sigKeyResponse = await httpClient.GetAsync(
-                $"https://licenseseat.com/api/v1/signing-keys/{offlineToken!.Signature!.KeyId}");
+                $"https://licenseseat.com/api/v1/signing_keys/{offlineToken!.Signature!.KeyId}");
             var sigKeyBody = await sigKeyResponse.Content.ReadAsStringAsync();
             var sigKey = JsonSerializer.Deserialize<SigningKeyResponse>(sigKeyBody,
                 new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
@@ -493,7 +493,7 @@ public static class UserJourneyTest
             var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
 
             var response = await httpClient.PostAsync(
-                $"https://licenseseat.com/api/v1/products/{PRODUCT_SLUG}/licenses/{LICENSE_KEY}/offline-token",
+                $"https://licenseseat.com/api/v1/products/{PRODUCT_SLUG}/licenses/{LICENSE_KEY}/offline_token",
                 content);
             var responseBody = await response.Content.ReadAsStringAsync();
             var offlineToken = JsonSerializer.Deserialize<OfflineTokenResponse>(responseBody);
@@ -551,7 +551,7 @@ public static class UserJourneyTest
             var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
 
             var response = await httpClient.PostAsync(
-                $"https://licenseseat.com/api/v1/products/{PRODUCT_SLUG}/licenses/{LICENSE_KEY}/offline-token",
+                $"https://licenseseat.com/api/v1/products/{PRODUCT_SLUG}/licenses/{LICENSE_KEY}/offline_token",
                 content);
             var responseBody = await response.Content.ReadAsStringAsync();
             var offlineToken = JsonSerializer.Deserialize<OfflineTokenResponse>(responseBody);

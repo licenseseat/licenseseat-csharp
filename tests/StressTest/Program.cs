@@ -668,7 +668,7 @@ await RunTest("Offline: Fetch offline token from API", async () =>
     var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
 
     var response = await httpClient.PostAsync(
-        $"https://licenseseat.com/api/v1/products/{PRODUCT_SLUG}/licenses/{LICENSE_KEY}/offline-token",
+        $"https://licenseseat.com/api/v1/products/{PRODUCT_SLUG}/licenses/{LICENSE_KEY}/offline_token",
         content);
 
     if (!response.IsSuccessStatusCode)
@@ -765,7 +765,7 @@ await RunTest("Offline: Fetch public signing key from API", async () =>
     httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {API_KEY}");
     httpClient.DefaultRequestHeaders.Add("Accept", "application/json");
 
-    var response = await httpClient.GetAsync($"https://licenseseat.com/api/v1/signing-keys/{keyId}");
+    var response = await httpClient.GetAsync($"https://licenseseat.com/api/v1/signing_keys/{keyId}");
 
     if (!response.IsSuccessStatusCode)
     {
