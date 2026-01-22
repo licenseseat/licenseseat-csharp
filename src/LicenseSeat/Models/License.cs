@@ -12,14 +12,14 @@ public sealed class License
     /// <summary>
     /// Gets or sets the license key.
     /// </summary>
-    [JsonPropertyName("license_key")]
-    public string LicenseKey { get; set; } = string.Empty;
+    [JsonPropertyName("key")]
+    public string Key { get; set; } = string.Empty;
 
     /// <summary>
-    /// Gets or sets the device identifier associated with this license.
+    /// Gets or sets the device ID associated with this license activation.
     /// </summary>
-    [JsonPropertyName("device_identifier")]
-    public string DeviceIdentifier { get; set; } = string.Empty;
+    [JsonPropertyName("device_id")]
+    public string DeviceId { get; set; } = string.Empty;
 
     /// <summary>
     /// Gets or sets the license status.
@@ -34,14 +34,14 @@ public sealed class License
     public DateTimeOffset? StartsAt { get; set; }
 
     /// <summary>
-    /// Gets or sets when the license ends (expires).
+    /// Gets or sets when the license expires.
     /// Null means the license never expires.
     /// </summary>
-    [JsonPropertyName("ends_at")]
-    public DateTimeOffset? EndsAt { get; set; }
+    [JsonPropertyName("expires_at")]
+    public DateTimeOffset? ExpiresAt { get; set; }
 
     /// <summary>
-    /// Gets or sets the license mode (e.g., "hardware_locked", "named_user").
+    /// Gets or sets the license mode (e.g., "hardware_locked", "floating").
     /// </summary>
     [JsonPropertyName("mode")]
     public string? Mode { get; set; }
@@ -59,10 +59,10 @@ public sealed class License
     public int? SeatLimit { get; set; }
 
     /// <summary>
-    /// Gets or sets the current number of active activations.
+    /// Gets or sets the current number of active seats.
     /// </summary>
-    [JsonPropertyName("active_activations_count")]
-    public int ActiveActivationsCount { get; set; }
+    [JsonPropertyName("active_seats")]
+    public int ActiveSeats { get; set; }
 
     /// <summary>
     /// Gets or sets the list of active entitlements for this license.
@@ -104,11 +104,68 @@ public sealed class License
     /// Gets a value indicating whether this license has expired.
     /// </summary>
     [JsonIgnore]
-    public bool IsExpired => EndsAt.HasValue && EndsAt.Value < DateTimeOffset.UtcNow;
+    public bool IsExpired => ExpiresAt.HasValue && ExpiresAt.Value < DateTimeOffset.UtcNow;
 
     /// <summary>
     /// Gets a value indicating whether this license is active.
     /// </summary>
     [JsonIgnore]
     public bool IsActive => Status?.Equals("active", StringComparison.OrdinalIgnoreCase) == true && !IsExpired;
+
+    /// <summary>
+    /// Creates a License from API response data.
+    /// </summary>
+    internal static License FromLicenseData(LicenseData data, string? deviceId = null)
+    {
+        var license = new License
+        {
+            Key = data.Key ?? string.Empty,
+            DeviceId = deviceId ?? string.Empty,
+            Status = data.Status,
+            Mode = data.Mode,
+            PlanKey = data.PlanKey,
+            SeatLimit = data.SeatLimit,
+            ActiveSeats = data.ActiveSeats,
+            Metadata = data.Metadata
+        };
+
+        if (!string.IsNullOrEmpty(data.StartsAt) && DateTimeOffset.TryParse(data.StartsAt, out var startsAt))
+        {
+            license.StartsAt = startsAt;
+        }
+
+        if (!string.IsNullOrEmpty(data.ExpiresAt) && DateTimeOffset.TryParse(data.ExpiresAt, out var expiresAt))
+        {
+            license.ExpiresAt = expiresAt;
+        }
+
+        if (data.Product != null)
+        {
+            license.Product = new Product
+            {
+                Slug = data.Product.Slug ?? string.Empty,
+                Name = data.Product.Name
+            };
+        }
+
+        if (data.ActiveEntitlements != null)
+        {
+            license.ActiveEntitlements = new List<Entitlement>();
+            foreach (var ent in data.ActiveEntitlements)
+            {
+                var entitlement = new Entitlement { Key = ent.Key ?? string.Empty };
+                if (!string.IsNullOrEmpty(ent.ExpiresAt) && DateTimeOffset.TryParse(ent.ExpiresAt, out var entExpiresAt))
+                {
+                    entitlement.ExpiresAt = entExpiresAt;
+                }
+                if (ent.Metadata != null)
+                {
+                    entitlement.Metadata = ent.Metadata;
+                }
+                license.ActiveEntitlements.Add(entitlement);
+            }
+        }
+
+        return license;
+    }
 }

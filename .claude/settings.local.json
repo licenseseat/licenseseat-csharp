@@ -22,7 +22,8 @@
       "Bash(tree:*)",
       "Bash(git log:*)",
       "WebFetch(domain:openupm.com)",
-      "Bash(./scripts/validate-unity-package.sh:*)"
+      "Bash(./scripts/validate-unity-package.sh:*)",
+      "Bash(dotnet run:*)"
     ]
   }
 }

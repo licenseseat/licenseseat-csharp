@@ -73,11 +73,11 @@ public class EventBusTests
 
         bus.On<License>("test", license => received = license);
 
-        var license = new License { LicenseKey = "test-key" };
+        var license = new License { Key = "test-key" };
         bus.Emit("test", license);
 
         Assert.NotNull(received);
-        Assert.Equal("test-key", received.LicenseKey);
+        Assert.Equal("test-key", received.Key);
     }
 
     [Fact]

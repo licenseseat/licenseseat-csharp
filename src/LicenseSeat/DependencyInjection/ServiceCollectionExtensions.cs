@@ -15,22 +15,33 @@ public static class ServiceCollectionExtensions
     /// </summary>
     /// <param name="services">The service collection.</param>
     /// <param name="apiKey">The API key for authentication.</param>
+    /// <param name="productSlug">The product slug for API operations.</param>
     /// <returns>The service collection for chaining.</returns>
     /// <example>
     /// <code>
-    /// services.AddLicenseSeatClient("your-api-key");
+    /// services.AddLicenseSeatClient("your-api-key", "your-product-slug");
     /// </code>
     /// </example>
     public static IServiceCollection AddLicenseSeatClient(
         this IServiceCollection services,
-        string apiKey)
+        string apiKey,
+        string productSlug)
     {
         if (string.IsNullOrWhiteSpace(apiKey))
         {
             throw new ArgumentException("API key cannot be empty", nameof(apiKey));
         }
 
-        return services.AddLicenseSeatClient(options => options.ApiKey = apiKey);
+        if (string.IsNullOrWhiteSpace(productSlug))
+        {
+            throw new ArgumentException("Product slug cannot be empty", nameof(productSlug));
+        }
+
+        return services.AddLicenseSeatClient(options =>
+        {
+            options.ApiKey = apiKey;
+            options.ProductSlug = productSlug;
+        });
     }
 
     /// <summary>

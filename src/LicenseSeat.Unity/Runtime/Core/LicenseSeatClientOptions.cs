@@ -10,7 +10,7 @@ public sealed class LicenseSeatClientOptions
     /// <summary>
     /// The default API base URL for LicenseSeat.
     /// </summary>
-    public const string DefaultApiBaseUrl = "https://licenseseat.com/api";
+    public const string DefaultApiBaseUrl = "https://licenseseat.com/api/v1";
 
     /// <summary>
     /// The default auto-validation interval (1 hour).
@@ -42,6 +42,12 @@ public sealed class LicenseSeatClientOptions
     /// Required for all authenticated API requests.
     /// </summary>
     public string? ApiKey { get; set; }
+
+    /// <summary>
+    /// Gets or sets the product slug for the product being licensed.
+    /// Required for all API requests.
+    /// </summary>
+    public string? ProductSlug { get; set; }
 
     /// <summary>
     /// Gets or sets the base URL for the LicenseSeat API.
@@ -153,12 +159,14 @@ public sealed class LicenseSeatClientOptions
     }
 
     /// <summary>
-    /// Creates a new instance of <see cref="LicenseSeatClientOptions"/> with the specified API key.
+    /// Creates a new instance of <see cref="LicenseSeatClientOptions"/> with the specified API key and product slug.
     /// </summary>
     /// <param name="apiKey">The API key for authentication.</param>
-    public LicenseSeatClientOptions(string apiKey)
+    /// <param name="productSlug">The product slug for the product being licensed.</param>
+    public LicenseSeatClientOptions(string apiKey, string productSlug)
     {
         ApiKey = apiKey ?? throw new ArgumentNullException(nameof(apiKey));
+        ProductSlug = productSlug ?? throw new ArgumentNullException(nameof(productSlug));
     }
 
     /// <summary>
@@ -170,6 +178,7 @@ public sealed class LicenseSeatClientOptions
         return new LicenseSeatClientOptions
         {
             ApiKey = ApiKey,
+            ProductSlug = ProductSlug,
             ApiBaseUrl = ApiBaseUrl,
             StoragePrefix = StoragePrefix,
             AutoValidateInterval = AutoValidateInterval,
@@ -194,6 +203,16 @@ public sealed class LicenseSeatClientOptions
     /// <exception cref="InvalidOperationException">Thrown when validation fails.</exception>
     public void Validate()
     {
+        if (string.IsNullOrWhiteSpace(ApiKey))
+        {
+            throw new InvalidOperationException("ApiKey is required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(ProductSlug))
+        {
+            throw new InvalidOperationException("ProductSlug is required.");
+        }
+
         if (string.IsNullOrWhiteSpace(ApiBaseUrl))
         {
             throw new InvalidOperationException("ApiBaseUrl cannot be empty.");

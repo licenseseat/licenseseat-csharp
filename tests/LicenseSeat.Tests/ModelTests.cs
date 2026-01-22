@@ -109,15 +109,15 @@ public class ModelTests
         {
             var license = new License();
 
-            Assert.Equal(string.Empty, license.LicenseKey);
-            Assert.Equal(string.Empty, license.DeviceIdentifier);
+            Assert.Equal(string.Empty, license.Key);
+            Assert.Equal(string.Empty, license.DeviceId);
             Assert.Null(license.Status);
         }
 
         [Fact]
         public void IsExpired_WhenNoEndDate_ReturnsFalse()
         {
-            var license = new License { EndsAt = null };
+            var license = new License { ExpiresAt = null };
 
             Assert.False(license.IsExpired);
         }
@@ -125,7 +125,7 @@ public class ModelTests
         [Fact]
         public void IsExpired_WhenNotExpired_ReturnsFalse()
         {
-            var license = new License { EndsAt = DateTimeOffset.UtcNow.AddDays(30) };
+            var license = new License { ExpiresAt = DateTimeOffset.UtcNow.AddDays(30) };
 
             Assert.False(license.IsExpired);
         }
@@ -133,7 +133,7 @@ public class ModelTests
         [Fact]
         public void IsExpired_WhenExpired_ReturnsTrue()
         {
-            var license = new License { EndsAt = DateTimeOffset.UtcNow.AddDays(-1) };
+            var license = new License { ExpiresAt = DateTimeOffset.UtcNow.AddDays(-1) };
 
             Assert.True(license.IsExpired);
         }
@@ -144,7 +144,7 @@ public class ModelTests
             var license = new License
             {
                 Status = "active",
-                EndsAt = DateTimeOffset.UtcNow.AddDays(30)
+                ExpiresAt = DateTimeOffset.UtcNow.AddDays(30)
             };
 
             Assert.True(license.IsActive);
@@ -156,7 +156,7 @@ public class ModelTests
             var license = new License
             {
                 Status = "active",
-                EndsAt = DateTimeOffset.UtcNow.AddDays(-1)
+                ExpiresAt = DateTimeOffset.UtcNow.AddDays(-1)
             };
 
             Assert.False(license.IsActive);
@@ -175,19 +175,19 @@ public class ModelTests
         {
             var license = new License
             {
-                LicenseKey = "XXXX-XXXX-XXXX-XXXX",
-                DeviceIdentifier = "device-123",
+                Key = "XXXX-XXXX-XXXX-XXXX",
+                DeviceId = "device-123",
                 Status = "active",
                 PlanKey = "pro",
                 SeatLimit = 5,
-                ActiveActivationsCount = 2
+                ActiveSeats = 2
             };
 
             var json = JsonSerializer.Serialize(license);
             var deserialized = JsonSerializer.Deserialize<License>(json);
 
             Assert.NotNull(deserialized);
-            Assert.Equal(license.LicenseKey, deserialized.LicenseKey);
+            Assert.Equal(license.Key, deserialized.Key);
             Assert.Equal(license.Status, deserialized.Status);
             Assert.Equal(license.PlanKey, deserialized.PlanKey);
         }
@@ -201,20 +201,20 @@ public class ModelTests
             var result = ValidationResult.Success();
 
             Assert.True(result.Valid);
-            Assert.Null(result.Reason);
-            Assert.Null(result.ReasonCode);
+            Assert.Null(result.Message);
+            Assert.Null(result.Code);
             Assert.False(result.Offline);
         }
 
         [Fact]
         public void Success_WithLicense_IncludesLicense()
         {
-            var license = new License { LicenseKey = "test-key" };
+            var license = new License { Key = "test-key" };
             var result = ValidationResult.Success(license);
 
             Assert.True(result.Valid);
             Assert.NotNull(result.License);
-            Assert.Equal("test-key", result.License.LicenseKey);
+            Assert.Equal("test-key", result.License.Key);
         }
 
         [Fact]
@@ -223,8 +223,8 @@ public class ModelTests
             var result = ValidationResult.Failed("License expired", "expired");
 
             Assert.False(result.Valid);
-            Assert.Equal("License expired", result.Reason);
-            Assert.Equal("expired", result.ReasonCode);
+            Assert.Equal("License expired", result.Message);
+            Assert.Equal("expired", result.Code);
         }
 
         [Fact]
@@ -246,7 +246,7 @@ public class ModelTests
 
             Assert.False(result.Valid);
             Assert.True(result.Offline);
-            Assert.Equal("signature_invalid", result.ReasonCode);
+            Assert.Equal("signature_invalid", result.Code);
         }
     }
 
@@ -278,8 +278,8 @@ public class ModelTests
         {
             var details = new LicenseStatusDetails
             {
-                LicenseKey = "test-key",
-                DeviceIdentifier = "device-123"
+                Key = "test-key",
+                DeviceId = "device-123"
             };
 
             var status = LicenseStatus.Active(details);
@@ -287,7 +287,7 @@ public class ModelTests
             Assert.Equal(LicenseStatusType.Active, status.StatusType);
             Assert.True(status.IsValid);
             Assert.NotNull(status.Details);
-            Assert.Equal("test-key", status.Details.LicenseKey);
+            Assert.Equal("test-key", status.Details.Key);
         }
 
         [Fact]
@@ -303,7 +303,7 @@ public class ModelTests
         [Fact]
         public void OfflineValid_CreatesOfflineValidStatus()
         {
-            var details = new LicenseStatusDetails { LicenseKey = "test" };
+            var details = new LicenseStatusDetails { Key = "test" };
             var status = LicenseStatus.OfflineValid(details);
 
             Assert.Equal(LicenseStatusType.OfflineValid, status.StatusType);
@@ -371,17 +371,17 @@ public class ModelTests
         {
             var options = new ActivationOptions();
 
-            Assert.Null(options.DeviceIdentifier);
-            Assert.Null(options.SoftwareReleaseDate);
+            Assert.Null(options.DeviceId);
+            Assert.Null(options.DeviceName);
             Assert.Null(options.Metadata);
         }
 
         [Fact]
-        public void Constructor_WithDeviceIdentifier_SetsDeviceIdentifier()
+        public void Constructor_WithDeviceId_SetsDeviceId()
         {
             var options = new ActivationOptions("device-123");
 
-            Assert.Equal("device-123", options.DeviceIdentifier);
+            Assert.Equal("device-123", options.DeviceId);
         }
 
         [Fact]
@@ -408,8 +408,7 @@ public class ModelTests
         {
             var options = new ValidationOptions();
 
-            Assert.Null(options.DeviceIdentifier);
-            Assert.Null(options.ProductSlug);
+            Assert.Null(options.DeviceId);
         }
     }
 }

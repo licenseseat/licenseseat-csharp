@@ -23,7 +23,8 @@ using LicenseSeat;
 
 var client = new LicenseSeatClient(new LicenseSeatClientOptions
 {
-    ApiKey = "your-api-key"
+    ApiKey = "your-api-key",
+    ProductSlug = "your-product"
 });
 
 // Activate a license
@@ -111,18 +112,26 @@ using LicenseSeat;
 
 var client = new LicenseSeatClient(new LicenseSeatClientOptions
 {
-    ApiKey = "your-api-key"
+    ApiKey = "your-api-key",
+    ProductSlug = "your-product"
 });
 
-// Activate
+// Activate a license (binds to this device)
 var license = await client.ActivateAsync("LICENSE-KEY");
-Console.WriteLine($"Activated: {license.LicenseKey}");
+Console.WriteLine($"Activated: {license.Key}");
+Console.WriteLine($"Status: {license.Status}");
+Console.WriteLine($"Plan: {license.PlanKey}");
 
-// Validate
+// Validate a license (check if it's valid without activating)
 var result = await client.ValidateAsync("LICENSE-KEY");
 if (result.Valid)
 {
     Console.WriteLine("License is valid!");
+    Console.WriteLine($"Active Seats: {result.License?.ActiveSeats}/{result.License?.SeatLimit}");
+}
+else
+{
+    Console.WriteLine($"Invalid: {result.Code} - {result.Message}");
 }
 
 // Check entitlements
@@ -131,9 +140,12 @@ if (client.HasEntitlement("premium"))
     // Unlock premium features
 }
 
-// Get status
+// Get current status
 var status = client.GetStatus();
 Console.WriteLine($"Status: {status.StatusType}");
+
+// Deactivate when done (frees up a seat)
+await client.DeactivateAsync();
 ```
 
 ### Static API (Singleton)
@@ -144,41 +156,55 @@ Perfect for desktop apps where you want global access:
 using LicenseSeat;
 
 // Configure once at startup
-LicenseSeat.Configure("your-api-key", options =>
+LicenseSeat.LicenseSeat.Configure("your-api-key", "your-product", options =>
 {
     options.AutoValidateInterval = TimeSpan.FromHours(1);
 });
 
-// Use anywhere
-await LicenseSeat.Activate("LICENSE-KEY");
+// Use anywhere in your app
+await LicenseSeat.LicenseSeat.Activate("LICENSE-KEY");
 
-if (LicenseSeat.HasEntitlement("premium"))
+if (LicenseSeat.LicenseSeat.HasEntitlement("premium"))
 {
     // Premium features
 }
 
+var status = LicenseSeat.LicenseSeat.GetStatus();
+var license = LicenseSeat.LicenseSeat.GetCurrentLicense();
+
 // Cleanup on exit
-LicenseSeat.Shutdown();
+LicenseSeat.LicenseSeat.Shutdown();
 ```
 
-### ASP.NET Core
+### ASP.NET Core Dependency Injection
 
 ```csharp
 // Program.cs
+builder.Services.AddLicenseSeatClient("your-api-key", "your-product");
+
+// Or with full options:
 builder.Services.AddLicenseSeatClient(options =>
 {
     options.ApiKey = "your-api-key";
+    options.ProductSlug = "your-product";
     options.AutoValidateInterval = TimeSpan.FromMinutes(30);
 });
 ```
 
 ```csharp
-// Your controller
+// Your controller or service
 public class LicenseController : ControllerBase
 {
     private readonly ILicenseSeatClient _client;
 
     public LicenseController(ILicenseSeatClient client) => _client = client;
+
+    [HttpPost("activate")]
+    public async Task<IActionResult> Activate([FromBody] string licenseKey)
+    {
+        var license = await _client.ActivateAsync(licenseKey);
+        return Ok(new { license.Key, license.Status });
+    }
 
     [HttpGet("status")]
     public IActionResult GetStatus()
@@ -192,6 +218,7 @@ public class LicenseController : ControllerBase
 ### Event Handling
 
 ```csharp
+// Subscribe to license events
 client.Events.On(LicenseSeatEvents.LicenseValidated, _ =>
     Console.WriteLine("License validated!"));
 
@@ -200,6 +227,12 @@ client.Events.On(LicenseSeatEvents.ValidationFailed, _ =>
 
 client.Events.On(LicenseSeatEvents.EntitlementChanged, _ =>
     Console.WriteLine("Entitlements updated!"));
+
+client.Events.On(LicenseSeatEvents.LicenseActivated, license =>
+    Console.WriteLine($"Activated: {((License)license).Key}"));
+
+client.Events.On(LicenseSeatEvents.LicenseDeactivated, _ =>
+    Console.WriteLine("License deactivated"));
 ```
 
 ### Offline Validation
@@ -208,16 +241,24 @@ client.Events.On(LicenseSeatEvents.EntitlementChanged, _ =>
 var client = new LicenseSeatClient(new LicenseSeatClientOptions
 {
     ApiKey = "your-api-key",
-    OfflineFallbackMode = OfflineFallbackMode.CacheFirst,
+    ProductSlug = "your-product",
+    OfflineFallbackMode = OfflineFallbackMode.NetworkOnly,
     MaxOfflineDays = 7  // Allow 7 days offline
 });
 
+// Validate - falls back to cached offline token if network fails
 var result = await client.ValidateAsync("LICENSE-KEY");
 if (result.Offline)
 {
     Console.WriteLine("Validated offline with cached license");
 }
 ```
+
+The SDK automatically fetches and caches Ed25519-signed offline tokens after activation. When offline:
+- Validates token signature cryptographically
+- Checks token expiration (`exp` timestamp)
+- Detects clock tampering
+- Returns cached entitlements
 
 ### Godot 4
 
@@ -233,7 +274,8 @@ public partial class LicenseManager : Node
     {
         _client = new LicenseSeatClient(new LicenseSeatClientOptions
         {
-            ApiKey = "your-api-key"
+            ApiKey = "your-api-key",
+            ProductSlug = "your-product"
         });
     }
 
@@ -243,7 +285,7 @@ public partial class LicenseManager : Node
         if (result.Valid)
             GD.Print("License is valid!");
         else
-            GD.Print($"Invalid: {result.Error}");
+            GD.Print($"Invalid: {result.Code}");
     }
 
     public override void _ExitTree() => _client?.Dispose();
@@ -278,7 +320,7 @@ public class LicenseController : MonoBehaviour
                 Debug.LogError($"Failed: {error.Message}");
                 return;
             }
-            Debug.Log($"Activated: {license.LicenseKey}");
+            Debug.Log($"Activated: {license.Key}");
         }));
     }
 }
@@ -295,18 +337,89 @@ Full Unity docs: [src/LicenseSeat.Unity/README.md](src/LicenseSeat.Unity/README.
 
 ## Configuration
 
-| Option                 | Default                       | Description                                   |
-| ---------------------- | ----------------------------- | --------------------------------------------- |
-| `ApiKey`               | —                             | Your LicenseSeat API key **(required)**       |
-| `ApiBaseUrl`           | `https://licenseseat.com/api` | API endpoint                                  |
-| `AutoValidateInterval` | 1 hour                        | Background validation interval (0 = disabled) |
-| `MaxRetries`           | 3                             | Retry attempts for failed requests            |
-| `RetryDelay`           | 1 second                      | Base delay between retries                    |
-| `OfflineFallbackMode`  | `Disabled`                    | Offline validation mode                       |
-| `MaxOfflineDays`       | 0                             | Offline grace period (0 = disabled)           |
-| `MaxClockSkew`         | 5 minutes                     | Clock tamper tolerance                        |
-| `HttpTimeout`          | 30 seconds                    | Request timeout                               |
-| `Debug`                | `false`                       | Enable debug logging                          |
+| Option                 | Default                            | Description                                   |
+| ---------------------- | ---------------------------------- | --------------------------------------------- |
+| `ApiKey`               | —                                  | Your LicenseSeat API key **(required)**       |
+| `ProductSlug`          | —                                  | Your product identifier **(required)**        |
+| `ApiBaseUrl`           | `https://licenseseat.com/api/v1`   | API endpoint                                  |
+| `AutoValidateInterval` | 1 hour                             | Background validation interval (0 = disabled) |
+| `MaxRetries`           | 3                                  | Retry attempts for failed requests            |
+| `RetryDelay`           | 1 second                           | Base delay between retries                    |
+| `OfflineFallbackMode`  | `Disabled`                         | Offline validation mode                       |
+| `MaxOfflineDays`       | 0                                  | Offline grace period (0 = disabled)           |
+| `MaxClockSkew`         | 5 minutes                          | Clock tamper tolerance                        |
+| `HttpTimeout`          | 30 seconds                         | Request timeout                               |
+| `Debug`                | `false`                            | Enable debug logging                          |
+
+## API Reference
+
+### LicenseSeatClient Methods
+
+| Method | Description |
+|--------|-------------|
+| `ActivateAsync(licenseKey)` | Activate a license on this device |
+| `ValidateAsync(licenseKey)` | Validate a license (check if valid) |
+| `DeactivateAsync()` | Deactivate the current license |
+| `HasEntitlement(key)` | Check if an entitlement is active |
+| `CheckEntitlement(key)` | Get detailed entitlement status |
+| `GetStatus()` | Get current license status |
+| `GetCurrentLicense()` | Get the cached license |
+| `TestAuthAsync()` | Test API connectivity |
+
+### ValidationResult Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `Valid` | `bool` | Whether the license is valid |
+| `Code` | `string?` | Error code if invalid |
+| `Message` | `string?` | Error message if invalid |
+| `Offline` | `bool` | True if validated offline |
+| `License` | `License?` | License data |
+| `ActiveEntitlements` | `List<Entitlement>?` | Active entitlements |
+| `Warnings` | `List<ValidationWarning>?` | Any warnings |
+
+### License Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `Key` | `string` | The license key |
+| `Status` | `string?` | License status (active, expired, etc.) |
+| `ExpiresAt` | `DateTimeOffset?` | When the license expires |
+| `PlanKey` | `string?` | Associated plan |
+| `SeatLimit` | `int?` | Maximum allowed seats |
+| `ActiveSeats` | `int` | Currently used seats |
+| `ActiveEntitlements` | `List<Entitlement>?` | Active entitlements |
+
+## Error Handling
+
+```csharp
+try
+{
+    var license = await client.ActivateAsync("INVALID-KEY");
+}
+catch (ApiException ex) when (ex.Code == "license_not_found")
+{
+    Console.WriteLine("License key not found");
+}
+catch (ApiException ex) when (ex.Code == "seat_limit_exceeded")
+{
+    Console.WriteLine($"All {ex.Details?["seat_limit"]} seats are in use");
+}
+catch (ApiException ex)
+{
+    Console.WriteLine($"API Error: {ex.Code} - {ex.Message}");
+    Console.WriteLine($"Status: {ex.StatusCode}");
+    Console.WriteLine($"Retryable: {ex.IsRetryable}");
+}
+```
+
+Common error codes:
+- `license_not_found` - Invalid license key
+- `license_expired` - License has expired
+- `license_suspended` - License is suspended
+- `seat_limit_exceeded` - All seats are in use
+- `device_not_activated` - Device not activated for this license
+- `invalid_api_key` - Invalid API key
 
 ## Documentation
 
@@ -326,7 +439,7 @@ Full API documentation: [licenseseat.com/docs](https://licenseseat.com/docs)
 # Build
 dotnet build
 
-# Test
+# Test (unit tests)
 dotnet test
 
 # Test with coverage
@@ -335,6 +448,69 @@ dotnet test --collect:"XPlat Code Coverage"
 # Package
 dotnet pack --configuration Release --output ./artifacts
 ```
+
+### Testing
+
+The SDK has two test suites:
+
+#### Unit Tests
+
+Unit tests run offline and test internal SDK logic:
+
+```bash
+dotnet test tests/LicenseSeat.Tests
+```
+
+#### Integration Tests (Stress Tests)
+
+Integration tests run against the live LicenseSeat API and validate the complete SDK functionality:
+
+```bash
+dotnet run --project tests/StressTest
+```
+
+**What's tested:**
+
+| Category | Tests |
+|----------|-------|
+| **Client Operations** | Create, authenticate, validate, activate, deactivate |
+| **Static API** | Singleton pattern for desktop apps |
+| **Dependency Injection** | ASP.NET Core integration |
+| **Error Handling** | Invalid keys, wrong product, invalid API key |
+| **Stress Tests** | Concurrent validations, parallel client creation |
+| **Offline Cryptography** | Ed25519 signature verification, tamper detection |
+| **User Journey** | 15 real-world customer scenarios |
+
+**User Journey Scenarios:**
+
+1. First-time user activation
+2. Entitlement/feature gating
+3. Auto-validation in background
+4. Offline token caching
+5. Network outage handling
+6. Tampered token detection
+7. Clock tampering detection
+8. Expired token handling
+9. Device switching
+10. Seat limit enforcement
+11. Invalid license key handling
+12. Wrong product slug (security)
+13. Invalid API key (security)
+14. Event-driven UI updates
+15. Graceful shutdown
+
+**Running with your own credentials:**
+
+Set environment variables before running:
+
+```bash
+export LICENSESEAT_API_KEY="your-api-key"
+export LICENSESEAT_PRODUCT_SLUG="your-product"
+export LICENSESEAT_LICENSE_KEY="your-license-key"
+dotnet run --project tests/StressTest
+```
+
+> **Note:** Integration tests require a valid LicenseSeat account and license. Tests may fail if the license seat limit is reached.
 
 ### Releasing
 

@@ -6,11 +6,11 @@ namespace LicenseSeat.Tests;
 public class DependencyInjectionTests
 {
     [Fact]
-    public void AddLicenseSeatClient_WithApiKey_RegistersClient()
+    public void AddLicenseSeatClient_WithApiKeyAndProductSlug_RegistersClient()
     {
         var services = new ServiceCollection();
 
-        services.AddLicenseSeatClient("test-api-key");
+        services.AddLicenseSeatClient("test-api-key", "test-product");
 
         var serviceProvider = services.BuildServiceProvider();
         var client = serviceProvider.GetService<ILicenseSeatClient>();
@@ -24,7 +24,15 @@ public class DependencyInjectionTests
     {
         var services = new ServiceCollection();
 
-        Assert.Throws<ArgumentException>(() => services.AddLicenseSeatClient(""));
+        Assert.Throws<ArgumentException>(() => services.AddLicenseSeatClient("", "test-product"));
+    }
+
+    [Fact]
+    public void AddLicenseSeatClient_WithEmptyProductSlug_ThrowsArgumentException()
+    {
+        var services = new ServiceCollection();
+
+        Assert.Throws<ArgumentException>(() => services.AddLicenseSeatClient("test-api-key", ""));
     }
 
     [Fact]
@@ -35,6 +43,7 @@ public class DependencyInjectionTests
         services.AddLicenseSeatClient(options =>
         {
             options.ApiKey = "test-api-key";
+            options.ProductSlug = "test-product";
             options.ApiBaseUrl = "https://custom.api.com";
             options.Debug = true;
         });
@@ -62,6 +71,7 @@ public class DependencyInjectionTests
         var options = new LicenseSeatClientOptions
         {
             ApiKey = "test-api-key",
+            ProductSlug = "test-product",
             ApiBaseUrl = "https://custom.api.com",
             AutoInitialize = false
         };
@@ -90,6 +100,7 @@ public class DependencyInjectionTests
         var customOptions = new LicenseSeatClientOptions
         {
             ApiKey = "factory-api-key",
+            ProductSlug = "factory-product",
             AutoInitialize = false
         };
 
@@ -118,6 +129,7 @@ public class DependencyInjectionTests
         services.AddLicenseSeatClient(options =>
         {
             options.ApiKey = "test-api-key";
+            options.ProductSlug = "test-product";
             options.AutoInitialize = false;
         });
 
@@ -137,6 +149,7 @@ public class DependencyInjectionTests
         services.AddLicenseSeatClient(options =>
         {
             options.ApiKey = "first-key";
+            options.ProductSlug = "first-product";
             options.AutoInitialize = false;
         });
 
@@ -144,6 +157,7 @@ public class DependencyInjectionTests
         services.AddLicenseSeatClient(options =>
         {
             options.ApiKey = "second-key";
+            options.ProductSlug = "second-product";
             options.AutoInitialize = false;
         });
 
@@ -160,7 +174,7 @@ public class DependencyInjectionTests
     {
         var services = new ServiceCollection();
 
-        var result = services.AddLicenseSeatClient("test-api-key");
+        var result = services.AddLicenseSeatClient("test-api-key", "test-product");
 
         Assert.Same(services, result);
     }
@@ -172,6 +186,7 @@ public class DependencyInjectionTests
         services.AddLicenseSeatClient(options =>
         {
             options.ApiKey = "test-api-key";
+            options.ProductSlug = "test-product";
             options.AutoInitialize = false;
         });
 

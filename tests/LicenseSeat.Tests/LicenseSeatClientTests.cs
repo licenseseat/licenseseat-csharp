@@ -32,6 +32,7 @@ public class LicenseSeatClientTests
     private static LicenseSeatClientOptions CreateOptions() => new LicenseSeatClientOptions
     {
         ApiKey = "test-api-key",
+        ProductSlug = "test-product",
         ApiBaseUrl = "https://api.test.com",
         AutoInitialize = false, // Disable for tests
         AutoValidateInterval = TimeSpan.Zero // Disable auto-validation for tests
@@ -51,10 +52,10 @@ public class LicenseSeatClientTests
     }
 
     [Fact]
-    public void Constructor_WithApiKey_CreatesClient()
+    public void Constructor_WithApiKeyAndProductSlug_CreatesClient()
     {
         // This test creates a real HTTP client, but we're just testing construction
-        var options = new LicenseSeatClientOptions("test-key")
+        var options = new LicenseSeatClientOptions("test-key", "test-product")
         {
             AutoInitialize = false
         };
@@ -79,16 +80,21 @@ public class LicenseSeatClientTests
         mockHttp.SetupPost((url, body) =>
         {
             wasCalled = true;
-            if (url.Contains("/activations/activate"))
+            if (url.Contains("/activate"))
             {
                 return new HttpResponse(200, """
                     {
-                        "success": true,
+                        "object": "activation",
+                        "id": "123",
+                        "device_id": "device-123",
+                        "license_key": "TEST-KEY",
+                        "activated_at": "2024-01-01T00:00:00Z",
                         "license": {
-                            "license_key": "TEST-KEY",
+                            "key": "TEST-KEY",
                             "status": "active",
                             "plan_key": "pro",
-                            "seat_limit": 5
+                            "seat_limit": 5,
+                            "active_seats": 1
                         }
                     }
                 """);
@@ -100,6 +106,7 @@ public class LicenseSeatClientTests
         var options = new LicenseSeatClientOptions
         {
             ApiKey = "test-api-key",
+            ProductSlug = "test-product",
             ApiBaseUrl = "https://api.test.com",
             AutoInitialize = false,
             AutoValidateInterval = TimeSpan.Zero,
@@ -121,16 +128,21 @@ public class LicenseSeatClientTests
         var mockHttp = new MockHttpClient();
         mockHttp.SetupPost((url, body) =>
         {
-            if (url.Contains("/activations/activate"))
+            if (url.Contains("/activate"))
             {
                 return new HttpResponse(200, """
                     {
-                        "success": true,
+                        "object": "activation",
+                        "id": "123",
+                        "device_id": "device-123",
+                        "license_key": "TEST-KEY",
+                        "activated_at": "2024-01-01T00:00:00Z",
                         "license": {
-                            "license_key": "TEST-KEY",
+                            "key": "TEST-KEY",
                             "status": "active",
                             "plan_key": "pro",
-                            "seat_limit": 5
+                            "seat_limit": 5,
+                            "active_seats": 1
                         }
                     }
                 """);
@@ -143,7 +155,7 @@ public class LicenseSeatClientTests
         var license = await client.ActivateAsync("TEST-KEY");
 
         Assert.NotNull(license);
-        Assert.Equal("TEST-KEY", license.LicenseKey);
+        Assert.Equal("TEST-KEY", license.Key);
         Assert.Equal("pro", license.PlanKey);
     }
 
@@ -163,7 +175,16 @@ public class LicenseSeatClientTests
     {
         var options = CreateOptions();
         var mockHttp = new MockHttpClient();
-        mockHttp.SetupPost((_, _) => new HttpResponse(200, """{"success":true,"license":{"license_key":"TEST"}}"""));
+        mockHttp.SetupPost((_, _) => new HttpResponse(200, """
+            {
+                "object": "activation",
+                "id": "123",
+                "device_id": "device-123",
+                "license_key": "TEST",
+                "activated_at": "2024-01-01T00:00:00Z",
+                "license": {"key":"TEST","status":"active","active_seats":1}
+            }
+        """));
 
         using var client = new LicenseSeatClient(options, mockHttp);
         var startEventReceived = false;
@@ -184,7 +205,7 @@ public class LicenseSeatClientTests
         var options = CreateOptions();
         options.MaxRetries = 0;
         var mockHttp = new MockHttpClient();
-        mockHttp.SetupPost((_, _) => new HttpResponse(400, """{"error":"Invalid license key"}"""));
+        mockHttp.SetupPost((_, _) => new HttpResponse(400, """{"error":{"code":"invalid_key","message":"Invalid license key"}}"""));
 
         using var client = new LicenseSeatClient(options, mockHttp);
         var errorEventReceived = false;
@@ -203,9 +224,9 @@ public class LicenseSeatClientTests
         var mockHttp = new MockHttpClient();
         mockHttp.SetupPost((url, _) =>
         {
-            if (url.Contains("/licenses/validate"))
+            if (url.Contains("/validate"))
             {
-                return new HttpResponse(200, """{"valid":true,"license":{"license_key":"TEST-KEY","status":"active"}}""");
+                return new HttpResponse(200, """{"object":"validation_result","valid":true,"license":{"key":"TEST-KEY","status":"active","active_seats":1}}""");
             }
             return new HttpResponse(200, "{}");
         });
@@ -225,9 +246,9 @@ public class LicenseSeatClientTests
         var mockHttp = new MockHttpClient();
         mockHttp.SetupPost((url, _) =>
         {
-            if (url.Contains("/licenses/validate"))
+            if (url.Contains("/validate"))
             {
-                return new HttpResponse(200, """{"valid":false,"error":"License expired","reason_code":"expired"}""");
+                return new HttpResponse(200, """{"object":"validation_result","valid":false,"code":"expired","message":"License expired"}""");
             }
             return new HttpResponse(200, "{}");
         });
@@ -237,7 +258,7 @@ public class LicenseSeatClientTests
         var result = await client.ValidateAsync("EXPIRED-KEY");
 
         Assert.False(result.Valid);
-        Assert.Equal("expired", result.ReasonCode);
+        Assert.Equal("expired", result.Code);
     }
 
     [Fact]
@@ -259,13 +280,22 @@ public class LicenseSeatClientTests
         var mockHttp = new MockHttpClient();
         mockHttp.SetupPost((url, _) =>
         {
-            if (url.Contains("/activations/activate"))
+            if (url.Contains("/activate"))
             {
-                return new HttpResponse(200, """{"success":true,"license":{"license_key":"TEST"}}""");
+                return new HttpResponse(200, """
+                    {
+                        "object": "activation",
+                        "id": "123",
+                        "device_id": "device-123",
+                        "license_key": "TEST",
+                        "activated_at": "2024-01-01T00:00:00Z",
+                        "license": {"key":"TEST","status":"active","active_seats":1}
+                    }
+                """);
             }
-            if (url.Contains("/activations/deactivate"))
+            if (url.Contains("/deactivate"))
             {
-                return new HttpResponse(200, """{"success":true}""");
+                return new HttpResponse(200, """{"object":"deactivation","activation_id":"123","deactivated_at":"2024-01-01T00:00:00Z"}""");
             }
             return new HttpResponse(200, "{}");
         });
@@ -300,7 +330,16 @@ public class LicenseSeatClientTests
     {
         var options = CreateOptions();
         var mockHttp = new MockHttpClient();
-        mockHttp.SetupPost((_, _) => new HttpResponse(200, """{"success":true,"license":{"license_key":"TEST"}}"""));
+        mockHttp.SetupPost((_, _) => new HttpResponse(200, """
+            {
+                "object": "activation",
+                "id": "123",
+                "device_id": "device-123",
+                "license_key": "TEST",
+                "activated_at": "2024-01-01T00:00:00Z",
+                "license": {"key":"TEST","status":"active","active_seats":1}
+            }
+        """));
 
         using var client = new LicenseSeatClient(options, mockHttp);
 
@@ -342,7 +381,16 @@ public class LicenseSeatClientTests
     {
         var options = CreateOptions();
         var mockHttp = new MockHttpClient();
-        mockHttp.SetupPost((_, _) => new HttpResponse(200, """{"success":true,"license":{"license_key":"TEST"}}"""));
+        mockHttp.SetupPost((_, _) => new HttpResponse(200, """
+            {
+                "object": "activation",
+                "id": "123",
+                "device_id": "device-123",
+                "license_key": "TEST",
+                "activated_at": "2024-01-01T00:00:00Z",
+                "license": {"key":"TEST","status":"active","active_seats":1}
+            }
+        """));
 
         using var client = new LicenseSeatClient(options, mockHttp);
         var resetEventReceived = false;
@@ -377,7 +425,7 @@ public class LicenseSeatClientTests
     {
         var options = CreateOptions();
         var mockHttp = new MockHttpClient();
-        mockHttp.SetupGet(_ => new HttpResponse(200, """{"success":true}"""));
+        mockHttp.SetupGet(_ => new HttpResponse(200, """{"object":"health","status":"healthy"}"""));
 
         using var client = new LicenseSeatClient(options, mockHttp);
 
@@ -427,9 +475,18 @@ public class LicenseSeatClientTests
         // First activation succeeds
         mockHttp.SetupPost((url, _) =>
         {
-            if (url.Contains("/activations/activate"))
+            if (url.Contains("/activate"))
             {
-                return new HttpResponse(200, """{"success":true,"license":{"license_key":"TEST"}}""");
+                return new HttpResponse(200, """
+                    {
+                        "object": "activation",
+                        "id": "123",
+                        "device_id": "device-123",
+                        "license_key": "TEST",
+                        "activated_at": "2024-01-01T00:00:00Z",
+                        "license": {"key":"TEST","status":"active","active_seats":1}
+                    }
+                """);
             }
             // Validation fails with network error
             return new HttpResponse(0, "Network error");
@@ -457,15 +514,20 @@ public class LicenseSeatClientTests
         var mockHttp = new MockHttpClient();
         mockHttp.SetupPost((url, body) =>
         {
-            if (url.Contains("/activations/activate"))
+            if (url.Contains("/activate"))
             {
                 return new HttpResponse(200, """
                     {
-                        "success": true,
+                        "object": "activation",
+                        "id": "123",
+                        "device_id": "device-123",
+                        "license_key": "SYNC-TEST-KEY",
+                        "activated_at": "2024-01-01T00:00:00Z",
                         "license": {
-                            "license_key": "SYNC-TEST-KEY",
+                            "key": "SYNC-TEST-KEY",
                             "status": "active",
-                            "plan_key": "pro"
+                            "plan_key": "pro",
+                            "active_seats": 1
                         }
                     }
                 """);
@@ -479,7 +541,7 @@ public class LicenseSeatClientTests
         var license = client.Activate("SYNC-TEST-KEY");
 
         Assert.NotNull(license);
-        Assert.Equal("SYNC-TEST-KEY", license.LicenseKey);
+        Assert.Equal("SYNC-TEST-KEY", license.Key);
     }
 
     [Fact]
@@ -489,14 +551,16 @@ public class LicenseSeatClientTests
         var mockHttp = new MockHttpClient();
         mockHttp.SetupPost((url, body) =>
         {
-            if (url.Contains("/licenses/validate"))
+            if (url.Contains("/validate"))
             {
                 return new HttpResponse(200, """
                     {
+                        "object": "validation_result",
                         "valid": true,
                         "license": {
-                            "license_key": "SYNC-VALIDATE-KEY",
-                            "status": "active"
+                            "key": "SYNC-VALIDATE-KEY",
+                            "status": "active",
+                            "active_seats": 1
                         }
                     }
                 """);
@@ -511,7 +575,7 @@ public class LicenseSeatClientTests
 
         Assert.True(result.Valid);
         Assert.NotNull(result.License);
-        Assert.Equal("SYNC-VALIDATE-KEY", result.License!.LicenseKey);
+        Assert.Equal("SYNC-VALIDATE-KEY", result.License!.Key);
     }
 
     [Fact]
@@ -534,9 +598,9 @@ public class LicenseSeatClientTests
         var mockHttp = new MockHttpClient();
         mockHttp.SetupGet(url =>
         {
-            if (url.Contains("/test-auth"))
+            if (url.Contains("/health"))
             {
-                return new HttpResponse(200, """{"authenticated": true}""");
+                return new HttpResponse(200, """{"object": "health", "status": "healthy"}""");
             }
             return new HttpResponse(200, "{}");
         });
@@ -558,14 +622,19 @@ public class LicenseSeatClientTests
         mockHttp.SetupPost((url, body) =>
         {
             wasCalled = true;
-            if (url.Contains("/activations/activate"))
+            if (url.Contains("/activate"))
             {
                 return new HttpResponse(200, """
                     {
-                        "success": true,
+                        "object": "activation",
+                        "id": "123",
+                        "device_id": "device-123",
+                        "license_key": "TEST",
+                        "activated_at": "2024-01-01T00:00:00Z",
                         "license": {
-                            "license_key": "TEST",
-                            "status": "active"
+                            "key": "TEST",
+                            "status": "active",
+                            "active_seats": 1
                         }
                     }
                 """);
@@ -576,6 +645,7 @@ public class LicenseSeatClientTests
         var options = new LicenseSeatClientOptions
         {
             ApiKey = "test-api-key",
+            ProductSlug = "test-product",
             ApiBaseUrl = "https://api.test.com",
             AutoInitialize = false,
             AutoValidateInterval = TimeSpan.Zero,

@@ -9,13 +9,79 @@ namespace LicenseSeat;
 /// <summary>
 /// Utility class for Ed25519 signature verification.
 /// </summary>
-internal static class Ed25519Verifier
+public static class Ed25519Verifier
 {
     private static readonly JsonSerializerOptions JsonOptions = new JsonSerializerOptions
     {
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
         WriteIndented = false
     };
+
+    /// <summary>
+    /// Verifies an Ed25519 signature against a canonical JSON string.
+    /// This is the primary method used for offline token verification.
+    /// </summary>
+    /// <param name="publicKeyBase64">The public key in Base64 encoding.</param>
+    /// <param name="signatureBase64Url">The signature in Base64URL encoding.</param>
+    /// <param name="canonicalJson">The canonical JSON string that was signed.</param>
+    /// <returns>True if the signature is valid; otherwise, false.</returns>
+    public static bool VerifyCanonical(string publicKeyBase64, string signatureBase64Url, string canonicalJson)
+    {
+        if (string.IsNullOrEmpty(publicKeyBase64))
+        {
+            throw new ArgumentException("Public key cannot be null or empty", nameof(publicKeyBase64));
+        }
+
+        if (string.IsNullOrEmpty(signatureBase64Url))
+        {
+            throw new ArgumentException("Signature cannot be null or empty", nameof(signatureBase64Url));
+        }
+
+        if (string.IsNullOrEmpty(canonicalJson))
+        {
+            throw new ArgumentException("Canonical JSON cannot be null or empty", nameof(canonicalJson));
+        }
+
+        try
+        {
+            // Decode public key from Base64
+            var publicKeyBytes = Convert.FromBase64String(publicKeyBase64);
+            if (publicKeyBytes.Length != 32)
+            {
+                throw new CryptoException(
+                    $"Invalid public key length: {publicKeyBytes.Length} bytes (expected 32)",
+                    CryptoException.InvalidKeyCode);
+            }
+
+            // Decode signature from Base64URL
+            var signatureBytes = Base64UrlDecode(signatureBase64Url);
+            if (signatureBytes.Length != 64)
+            {
+                throw new CryptoException(
+                    $"Invalid signature length: {signatureBytes.Length} bytes (expected 64)",
+                    CryptoException.InvalidSignatureCode);
+            }
+
+            // Convert canonical JSON to bytes
+            var messageBytes = Encoding.UTF8.GetBytes(canonicalJson);
+
+            // Create Ed25519 verifier
+            var publicKeyParams = new Ed25519PublicKeyParameters(publicKeyBytes, 0);
+            var verifier = new Ed25519Signer();
+            verifier.Init(false, publicKeyParams);
+            verifier.BlockUpdate(messageBytes, 0, messageBytes.Length);
+
+            return verifier.VerifySignature(signatureBytes);
+        }
+        catch (CryptoException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            throw new CryptoException($"Ed25519 verification failed: {ex.Message}", CryptoException.VerificationFailedCode);
+        }
+    }
 
     /// <summary>
     /// Verifies an Ed25519 signature.
