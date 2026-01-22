@@ -80,9 +80,9 @@ public class ApiException : LicenseSeatException
     public int StatusCode { get; }
 
     /// <summary>
-    /// Gets the reason code from the API response, if available.
+    /// Gets the error code from the API response.
     /// </summary>
-    public string? ReasonCode { get; }
+    public string? Code { get; }
 
     /// <summary>
     /// Gets the raw response body from the API, if available.
@@ -105,12 +105,12 @@ public class ApiException : LicenseSeatException
     /// </summary>
     /// <param name="message">The error message from the API.</param>
     /// <param name="statusCode">The HTTP status code.</param>
-    /// <param name="reasonCode">The reason code from the API.</param>
-    public ApiException(string message, int statusCode, string? reasonCode)
-        : base(message, reasonCode ?? string.Empty)
+    /// <param name="code">The error code from the API.</param>
+    public ApiException(string message, int statusCode, string? code)
+        : base(message, code ?? string.Empty)
     {
         StatusCode = statusCode;
-        ReasonCode = reasonCode;
+        Code = code;
     }
 
     /// <summary>
@@ -118,13 +118,13 @@ public class ApiException : LicenseSeatException
     /// </summary>
     /// <param name="message">The error message from the API.</param>
     /// <param name="statusCode">The HTTP status code.</param>
-    /// <param name="reasonCode">The reason code from the API.</param>
+    /// <param name="code">The error code from the API.</param>
     /// <param name="responseBody">The raw response body.</param>
-    public ApiException(string message, int statusCode, string? reasonCode, string? responseBody)
-        : base(message, reasonCode ?? string.Empty)
+    public ApiException(string message, int statusCode, string? code, string? responseBody)
+        : base(message, code ?? string.Empty)
     {
         StatusCode = statusCode;
-        ReasonCode = reasonCode;
+        Code = code;
         ResponseBody = responseBody;
     }
 

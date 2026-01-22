@@ -34,6 +34,7 @@ public class InterfaceAndNewFeaturesTests
     private static LicenseSeatClientOptions CreateOptions() => new LicenseSeatClientOptions
     {
         ApiKey = "test-api-key",
+        ProductSlug = "test-product",
         ApiBaseUrl = "https://api.test.com",
         AutoInitialize = false,
         AutoValidateInterval = TimeSpan.Zero
@@ -98,7 +99,7 @@ public class InterfaceAndNewFeaturesTests
     {
         var options = CreateOptions();
         var mockHttp = new MockHttpClient();
-        mockHttp.SetupPost((_, _) => new HttpResponse(200, """{"success":true,"license":{"license_key":"TEST"}}"""));
+        mockHttp.SetupPost((_, _) => new HttpResponse(200, """{"valid":true,"license":{"key":"TEST"}}"""));
 
         using var client = new LicenseSeatClient(options, mockHttp);
         var resetEventReceived = false;
@@ -135,7 +136,7 @@ public class InterfaceAndNewFeaturesTests
         var options = CreateOptions();
         options.AutoValidateInterval = TimeSpan.FromMilliseconds(100);
         var mockHttp = new MockHttpClient();
-        mockHttp.SetupPost((_, _) => new HttpResponse(200, """{"success":true,"license":{"license_key":"TEST"}}"""));
+        mockHttp.SetupPost((_, _) => new HttpResponse(200, """{"valid":true,"license":{"key":"TEST"}}"""));
 
         using var client = new LicenseSeatClient(options, mockHttp);
         var autoValidationStopped = false;

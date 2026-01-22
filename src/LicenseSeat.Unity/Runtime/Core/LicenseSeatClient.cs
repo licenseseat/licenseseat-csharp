@@ -10,8 +10,8 @@ namespace LicenseSeat;
 /// </summary>
 /// <example>
 /// <code>
-/// // Create client with API key
-/// var client = new LicenseSeatClient(new LicenseSeatClientOptions("your-api-key"));
+/// // Create client with API key and product slug
+/// var client = new LicenseSeatClient(new LicenseSeatClientOptions("your-api-key", "your-product"));
 ///
 /// // Activate a license
 /// var license = await client.ActivateAsync("LICENSE-KEY");
@@ -82,11 +82,12 @@ public sealed class LicenseSeatClient : ILicenseSeatClient
     }
 
     /// <summary>
-    /// Creates a new LicenseSeat client with the specified API key.
+    /// Creates a new LicenseSeat client with the specified API key and product slug.
     /// </summary>
     /// <param name="apiKey">The API key for authentication.</param>
-    public LicenseSeatClient(string apiKey)
-        : this(new LicenseSeatClientOptions(apiKey))
+    /// <param name="productSlug">The product slug for API requests.</param>
+    public LicenseSeatClient(string apiKey, string productSlug)
+        : this(new LicenseSeatClientOptions(apiKey, productSlug))
     {
     }
 
@@ -128,14 +129,14 @@ public sealed class LicenseSeatClient : ILicenseSeatClient
             // Start auto-validation if API key is configured
             if (!string.IsNullOrEmpty(_options.ApiKey))
             {
-                StartAutoValidation(cachedLicense.LicenseKey);
+                StartAutoValidation(cachedLicense.Key);
 
                 // Validate in background
                 _ = Task.Run(async () =>
                 {
                     try
                     {
-                        await ValidateAsync(cachedLicense.LicenseKey).ConfigureAwait(false);
+                        await ValidateAsync(cachedLicense.Key).ConfigureAwait(false);
                     }
                     catch (Exception ex)
                     {
@@ -145,7 +146,7 @@ public sealed class LicenseSeatClient : ILicenseSeatClient
                         {
                             _eventBus.Emit(LicenseSeatEvents.ValidationAuthFailed, new
                             {
-                                LicenseKey = cachedLicense.LicenseKey,
+                                LicenseKey = cachedLicense.Key,
                                 Error = ex,
                                 Cached = true
                             });
@@ -175,57 +176,47 @@ public sealed class LicenseSeatClient : ILicenseSeatClient
         }
 
         options ??= new ActivationOptions();
-        var deviceId = options.DeviceIdentifier ?? _options.DeviceIdentifier ?? DeviceIdentifier.Generate();
+        var deviceId = options.DeviceId ?? _options.DeviceId ?? DeviceIdentifier.Generate();
 
         var request = new ActivationRequest
         {
-            LicenseKey = licenseKey,
-            DeviceIdentifier = deviceId,
-            Metadata = options.Metadata,
-            SoftwareReleaseDate = options.SoftwareReleaseDate
+            DeviceId = deviceId,
+            DeviceName = options.DeviceName,
+            Metadata = options.Metadata
         };
 
         _eventBus.Emit(LicenseSeatEvents.ActivationStart, new { LicenseKey = licenseKey, DeviceId = deviceId });
 
         try
         {
-            var response = await _apiClient.PostAsync<ActivationRequest, ActivationResult>(
-                "/activations/activate",
+            var response = await _apiClient.PostAsync<ActivationRequest, ActivationResponse>(
+                $"/products/{_options.ProductSlug}/licenses/{licenseKey}/activate",
                 request,
                 cancellationToken
             ).ConfigureAwait(false);
 
-            // Create and cache license
-            var license = new License
+            // Create license from response
+            var result = ActivationResult.FromResponse(response, deviceId);
+            var license = result.License ?? new License
             {
-                LicenseKey = licenseKey,
-                DeviceIdentifier = deviceId,
+                Key = licenseKey,
+                DeviceId = deviceId,
                 ActivatedAt = DateTimeOffset.UtcNow,
                 LastValidated = DateTimeOffset.UtcNow,
                 Status = "active"
             };
 
-            // Merge license data from response
-            if (response.License != null)
-            {
-                license.Status = response.License.Status ?? license.Status;
-                license.PlanKey = response.License.PlanKey;
-                license.SeatLimit = response.License.SeatLimit;
-                license.ActiveEntitlements = response.License.ActiveEntitlements;
-                license.Product = response.License.Product;
-                license.StartsAt = response.License.StartsAt;
-                license.EndsAt = response.License.EndsAt;
-                license.Mode = response.License.Mode;
-            }
+            license.LastValidated = DateTimeOffset.UtcNow;
 
             _cache.SetLicense(license);
+            _cache.SetDeviceId(deviceId);
             _cache.UpdateValidation(new ValidationResult { Valid = true, Optimistic = true });
 
             // Start auto-validation
             StartAutoValidation(licenseKey);
 
             // Sync offline assets in background
-            _ = Task.Run(() => SyncOfflineAssetsAsync(CancellationToken.None), CancellationToken.None);
+            _ = Task.Run(() => SyncOfflineAssetsAsync(licenseKey, CancellationToken.None), CancellationToken.None);
 
             _eventBus.Emit(LicenseSeatEvents.ActivationSuccess, license);
             return license;
@@ -262,13 +253,11 @@ public sealed class LicenseSeatClient : ILicenseSeatClient
         {
             var request = new ValidationRequest
             {
-                LicenseKey = licenseKey,
-                DeviceIdentifier = options.DeviceIdentifier ?? _cache.GetDeviceId(),
-                ProductSlug = options.ProductSlug
+                DeviceId = options.DeviceId ?? _cache.GetDeviceId()
             };
 
             var response = await _apiClient.PostAsync<ValidationRequest, ValidationResponse>(
-                "/licenses/validate",
+                $"/products/{_options.ProductSlug}/licenses/{licenseKey}/validate",
                 request,
                 cancellationToken
             ).ConfigureAwait(false);
@@ -276,11 +265,17 @@ public sealed class LicenseSeatClient : ILicenseSeatClient
             var result = new ValidationResult
             {
                 Valid = response.Valid,
-                License = response.License,
-                ActiveEntitlements = response.License?.ActiveEntitlements,
-                Reason = response.Error,
-                ReasonCode = response.ReasonCode
+                Code = response.Code,
+                Message = response.Message,
+                Warnings = response.Warnings
             };
+
+            // Convert LicenseData to License
+            if (response.License != null)
+            {
+                result.License = License.FromLicenseData(response.License, request.DeviceId);
+                result.ActiveEntitlements = result.License.ActiveEntitlements;
+            }
 
             // Preserve cached entitlements if server response omits them
             var cachedLicense = _cache.GetLicense();
@@ -291,7 +286,7 @@ public sealed class LicenseSeatClient : ILicenseSeatClient
             }
 
             // Update cache
-            if (cachedLicense != null && cachedLicense.LicenseKey == licenseKey)
+            if (cachedLicense != null && cachedLicense.Key == licenseKey)
             {
                 _cache.UpdateValidation(result);
             }
@@ -299,7 +294,7 @@ public sealed class LicenseSeatClient : ILicenseSeatClient
             if (result.Valid)
             {
                 _eventBus.Emit(LicenseSeatEvents.ValidationSuccess, result);
-                _cache.SetLastSeenTimestamp(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+                _cache.SetLastSeenTimestamp(DateTimeOffset.UtcNow.ToUnixTimeSeconds());
             }
             else
             {
@@ -320,7 +315,7 @@ public sealed class LicenseSeatClient : ILicenseSeatClient
                 var offlineResult = await VerifyCachedOfflineAsync().ConfigureAwait(false);
 
                 var cachedLicense = _cache.GetLicense();
-                if (cachedLicense != null && cachedLicense.LicenseKey == licenseKey)
+                if (cachedLicense != null && cachedLicense.Key == licenseKey)
                 {
                     _cache.UpdateValidation(offlineResult);
                 }
@@ -363,12 +358,11 @@ public sealed class LicenseSeatClient : ILicenseSeatClient
         {
             var request = new DeactivationRequest
             {
-                LicenseKey = license.LicenseKey,
-                DeviceIdentifier = license.DeviceIdentifier
+                DeviceId = license.DeviceId
             };
 
-            await _apiClient.PostAsync<DeactivationRequest, object>(
-                "/activations/deactivate",
+            await _apiClient.PostAsync<DeactivationRequest, DeactivationResponse>(
+                $"/products/{_options.ProductSlug}/licenses/{license.Key}/deactivate",
                 request,
                 cancellationToken
             ).ConfigureAwait(false);
@@ -411,15 +405,15 @@ public sealed class LicenseSeatClient : ILicenseSeatClient
         {
             if (validation.Offline)
             {
-                return LicenseStatus.OfflineInvalid(validation.ReasonCode ?? "License invalid (offline)");
+                return LicenseStatus.OfflineInvalid(validation.Code ?? "License invalid (offline)");
             }
-            return LicenseStatus.Invalid(validation.Reason ?? "License invalid");
+            return LicenseStatus.Invalid(validation.Message ?? "License invalid");
         }
 
         var details = new LicenseStatusDetails
         {
-            LicenseKey = license.LicenseKey,
-            DeviceIdentifier = license.DeviceIdentifier,
+            Key = license.Key,
+            DeviceId = license.DeviceId,
             ActivatedAt = license.ActivatedAt,
             LastValidated = license.LastValidated,
             Entitlements = validation.ActiveEntitlements ?? new System.Collections.Generic.List<Entitlement>()
@@ -511,13 +505,13 @@ public sealed class LicenseSeatClient : ILicenseSeatClient
     }
 
     /// <summary>
-    /// Tests authentication with the API.
+    /// Tests API connectivity by calling the health endpoint.
     /// </summary>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>True if authentication is successful.</returns>
+    /// <returns>True if the API is healthy.</returns>
     public async Task<bool> TestAuthAsync(CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrEmpty(_options.ApiKey))
+        if (string.IsNullOrWhiteSpace(_options.ApiKey))
         {
             throw ConfigurationException.ApiKeyRequired();
         }
@@ -526,7 +520,7 @@ public sealed class LicenseSeatClient : ILicenseSeatClient
 
         try
         {
-            await _apiClient.GetAsync<object>("/auth_test", cancellationToken).ConfigureAwait(false);
+            await _apiClient.GetAsync<HealthResponse>("/health", cancellationToken).ConfigureAwait(false);
             _eventBus.Emit(LicenseSeatEvents.AuthTestSuccess, null);
             return true;
         }
@@ -604,20 +598,20 @@ public sealed class LicenseSeatClient : ILicenseSeatClient
     // Offline Support
     // ============================================================
 
-    private async Task SyncOfflineAssetsAsync(CancellationToken cancellationToken)
+    private async Task SyncOfflineAssetsAsync(string licenseKey, CancellationToken cancellationToken)
     {
         try
         {
-            var offlineLicense = await GetOfflineLicenseAsync(cancellationToken).ConfigureAwait(false);
-            _cache.SetOfflineLicense(offlineLicense);
+            var offlineToken = await GetOfflineTokenAsync(licenseKey, cancellationToken).ConfigureAwait(false);
+            _cache.SetOfflineToken(offlineToken);
 
-            var keyId = offlineLicense.KeyId ?? offlineLicense.Payload?.KeyId;
+            var keyId = offlineToken.Signature?.KeyId ?? offlineToken.Token?.Kid;
             if (!string.IsNullOrEmpty(keyId))
             {
                 var existingKey = _cache.GetPublicKey(keyId!);
                 if (existingKey == null)
                 {
-                    var publicKey = await GetPublicKeyAsync(keyId!, cancellationToken).ConfigureAwait(false);
+                    var publicKey = await GetSigningKeyAsync(keyId!, cancellationToken).ConfigureAwait(false);
                     _cache.SetPublicKey(keyId!, publicKey);
                 }
             }
@@ -625,7 +619,7 @@ public sealed class LicenseSeatClient : ILicenseSeatClient
             _eventBus.Emit(LicenseSeatEvents.OfflineLicenseReady, new
             {
                 KeyId = keyId,
-                ExpiresAt = offlineLicense.Payload?.ExpiresAt
+                ExpiresAt = offlineToken.Token?.Exp
             });
         }
         catch (Exception ex)
@@ -634,52 +628,52 @@ public sealed class LicenseSeatClient : ILicenseSeatClient
         }
     }
 
-    private async Task<SignedOfflineLicense> GetOfflineLicenseAsync(CancellationToken cancellationToken)
+    private async Task<OfflineTokenResponse> GetOfflineTokenAsync(string licenseKey, CancellationToken cancellationToken)
     {
-        var license = _cache.GetLicense();
-        if (license == null || string.IsNullOrEmpty(license.LicenseKey))
-        {
-            throw LicenseException.NoActiveLicense();
-        }
-
-        _eventBus.Emit(LicenseSeatEvents.OfflineLicenseFetching, new { LicenseKey = license.LicenseKey });
+        _eventBus.Emit(LicenseSeatEvents.OfflineLicenseFetching, new { LicenseKey = licenseKey });
 
         try
         {
-            var response = await _apiClient.PostAsync<SignedOfflineLicense>(
-                $"/licenses/{license.LicenseKey}/offline_license",
+            var request = new OfflineTokenRequest
+            {
+                DeviceId = _cache.GetDeviceId()
+            };
+
+            var response = await _apiClient.PostAsync<OfflineTokenRequest, OfflineTokenResponse>(
+                $"/products/{_options.ProductSlug}/licenses/{licenseKey}/offline_token",
+                request,
                 cancellationToken
             ).ConfigureAwait(false);
 
-            _eventBus.Emit(LicenseSeatEvents.OfflineLicenseFetched, new { LicenseKey = license.LicenseKey, Data = response });
+            _eventBus.Emit(LicenseSeatEvents.OfflineLicenseFetched, new { LicenseKey = licenseKey, Data = response });
             return response;
         }
         catch (Exception ex)
         {
-            _eventBus.Emit(LicenseSeatEvents.OfflineLicenseFetchError, new { LicenseKey = license.LicenseKey, Error = ex });
+            _eventBus.Emit(LicenseSeatEvents.OfflineLicenseFetchError, new { LicenseKey = licenseKey, Error = ex });
             throw;
         }
     }
 
-    private async Task<string> GetPublicKeyAsync(string keyId, CancellationToken cancellationToken)
+    private async Task<string> GetSigningKeyAsync(string keyId, CancellationToken cancellationToken)
     {
-        var response = await _apiClient.GetAsync<PublicKeyResponse>(
-            $"/public_keys/{keyId}",
+        var response = await _apiClient.GetAsync<SigningKeyResponse>(
+            $"/signing_keys/{keyId}",
             cancellationToken
         ).ConfigureAwait(false);
 
-        if (string.IsNullOrEmpty(response.PublicKeyB64))
+        if (string.IsNullOrEmpty(response.PublicKey))
         {
-            throw new CryptoException($"Public key not found for kid: {keyId}", CryptoException.NoPublicKeyCode);
+            throw new CryptoException($"Public key not found for key_id: {keyId}", CryptoException.NoPublicKeyCode);
         }
 
-        return response.PublicKeyB64!;
+        return response.PublicKey!;
     }
 
     private Task<ValidationResult> VerifyCachedOfflineAsync()
     {
-        var offlineLicense = _cache.GetOfflineLicense();
-        if (offlineLicense == null)
+        var offlineToken = _cache.GetOfflineToken();
+        if (offlineToken == null)
         {
             return Task.FromResult(ValidationResult.OfflineResult(false, "no_offline_license"));
         }
@@ -691,23 +685,21 @@ public sealed class LicenseSeatClient : ILicenseSeatClient
         }
 
         // Check license key match using constant-time comparison to prevent timing attacks
-        var payloadLicenseKey = offlineLicense.Payload?.LicenseKey ?? string.Empty;
-        if (!Ed25519Verifier.ConstantTimeEquals(payloadLicenseKey, cachedLicense.LicenseKey))
+        var tokenLicenseKey = offlineToken.Token?.LicenseKey ?? string.Empty;
+        if (!Ed25519Verifier.ConstantTimeEquals(tokenLicenseKey, cachedLicense.Key))
         {
             return Task.FromResult(ValidationResult.OfflineResult(false, "license_mismatch"));
         }
 
         var now = DateTimeOffset.UtcNow;
+        var nowUnix = now.ToUnixTimeSeconds();
 
-        // Check expiry
-        if (!string.IsNullOrEmpty(offlineLicense.Payload?.ExpiresAt))
+        // Check expiry (exp is Unix timestamp)
+        if (offlineToken.Token?.Exp > 0)
         {
-            if (DateTimeOffset.TryParse(offlineLicense.Payload!.ExpiresAt, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var expiresAt))
+            if (offlineToken.Token.Exp < nowUnix)
             {
-                if (expiresAt < now)
-                {
-                    return Task.FromResult(ValidationResult.OfflineResult(false, "expired"));
-                }
+                return Task.FromResult(ValidationResult.OfflineResult(false, "expired"));
             }
         }
         else if (_options.MaxOfflineDays > 0)
@@ -723,37 +715,42 @@ public sealed class LicenseSeatClient : ILicenseSeatClient
             }
         }
 
+        // Check not-before (nbf is Unix timestamp)
+        if (offlineToken.Token?.Nbf > 0 && offlineToken.Token.Nbf > nowUnix)
+        {
+            return Task.FromResult(ValidationResult.OfflineResult(false, "not_yet_valid"));
+        }
+
         // Clock tamper detection
         var lastSeenTimestamp = _cache.GetLastSeenTimestamp();
         if (lastSeenTimestamp > 0)
         {
-            var nowTimestamp = now.ToUnixTimeSeconds();
             var maxSkewSeconds = _options.MaxClockSkew.TotalSeconds;
 
             // If current time is significantly behind the last seen time, clock may have been tampered
-            if (nowTimestamp + maxSkewSeconds < lastSeenTimestamp)
+            if (nowUnix + maxSkewSeconds < lastSeenTimestamp)
             {
-                Log($"Possible clock tampering detected: now={nowTimestamp}, lastSeen={lastSeenTimestamp}, maxSkew={maxSkewSeconds}");
+                Log($"Possible clock tampering detected: now={nowUnix}, lastSeen={lastSeenTimestamp}, maxSkew={maxSkewSeconds}");
                 return Task.FromResult(ValidationResult.OfflineResult(false, "clock_tamper"));
             }
         }
 
         // Ed25519 signature verification
-        var keyId = offlineLicense.KeyId ?? offlineLicense.Payload?.KeyId;
-        if (!string.IsNullOrEmpty(keyId) && !string.IsNullOrEmpty(offlineLicense.SignatureB64U) && offlineLicense.Payload != null)
+        var keyId = offlineToken.Signature?.KeyId ?? offlineToken.Token?.Kid;
+        if (!string.IsNullOrEmpty(keyId) && !string.IsNullOrEmpty(offlineToken.Signature?.Value) && !string.IsNullOrEmpty(offlineToken.Canonical))
         {
             var publicKey = _cache.GetPublicKey(keyId!);
             if (!string.IsNullOrEmpty(publicKey))
             {
                 try
                 {
-                    var isValid = Ed25519Verifier.Verify(publicKey!, offlineLicense.SignatureB64U!, offlineLicense.Payload);
+                    var isValid = Ed25519Verifier.VerifyCanonical(publicKey!, offlineToken.Signature!.Value!, offlineToken.Canonical!);
                     if (!isValid)
                     {
-                        Log("Offline license signature verification failed");
+                        Log("Offline token signature verification failed");
                         return Task.FromResult(ValidationResult.OfflineResult(false, "signature_invalid"));
                     }
-                    Log("Offline license signature verified successfully");
+                    Log("Offline token signature verified successfully");
                 }
                 catch (CryptoException ex)
                 {
@@ -764,35 +761,29 @@ public sealed class LicenseSeatClient : ILicenseSeatClient
             else
             {
                 // No public key cached - skip signature verification but log it
-                Log($"No public key cached for kid {keyId}, skipping signature verification");
+                Log($"No public key cached for key_id {keyId}, skipping signature verification");
             }
         }
 
         // Update last seen timestamp for clock tamper detection
-        _cache.SetLastSeenTimestamp(now.ToUnixTimeSeconds());
+        _cache.SetLastSeenTimestamp(nowUnix);
 
-        // Parse entitlements from offline license payload
-        var entitlements = ParseEntitlementsFromOfflinePayload(offlineLicense.Payload);
+        // Parse entitlements from offline token
+        var entitlements = ParseEntitlementsFromOfflineToken(offlineToken.Token);
 
         // All checks passed
         return Task.FromResult(ValidationResult.OfflineResult(true, entitlements: entitlements));
     }
 
-    private static List<Entitlement>? ParseEntitlementsFromOfflinePayload(OfflineLicensePayload? payload)
+    private static System.Collections.Generic.List<Entitlement>? ParseEntitlementsFromOfflineToken(OfflineToken? token)
     {
-        if (payload == null)
+        if (token?.Entitlements == null || token.Entitlements.Count == 0)
         {
             return null;
         }
 
-        var offlineEntitlements = payload.GetAllEntitlements();
-        if (offlineEntitlements.Count == 0)
-        {
-            return null;
-        }
-
-        var entitlements = new List<Entitlement>();
-        foreach (var oe in offlineEntitlements)
+        var entitlements = new System.Collections.Generic.List<Entitlement>();
+        foreach (var oe in token.Entitlements)
         {
             if (string.IsNullOrEmpty(oe.Key))
             {
@@ -800,12 +791,9 @@ public sealed class LicenseSeatClient : ILicenseSeatClient
             }
 
             DateTimeOffset? expiresAt = null;
-            if (!string.IsNullOrEmpty(oe.ExpiresAt))
+            if (oe.ExpiresAt.HasValue && oe.ExpiresAt.Value > 0)
             {
-                if (DateTimeOffset.TryParse(oe.ExpiresAt, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var parsed))
-                {
-                    expiresAt = parsed;
-                }
+                expiresAt = DateTimeOffset.FromUnixTimeSeconds(oe.ExpiresAt.Value);
             }
 
             entitlements.Add(new Entitlement
@@ -834,7 +822,7 @@ public sealed class LicenseSeatClient : ILicenseSeatClient
     private void CompleteDeactivation()
     {
         _cache.ClearLicense();
-        _cache.ClearOfflineLicense();
+        _cache.ClearOfflineToken();
         StopAutoValidation();
         StopOfflineRefresh();
         _currentAutoLicenseKey = null;
@@ -869,15 +857,15 @@ public sealed class LicenseSeatClient : ILicenseSeatClient
                 return true;
 
             case 422: // Unprocessable
-                var reasonCode = error.ReasonCode?.ToLowerInvariant();
-                if (reasonCode != null)
+                var code = error.Code?.ToLowerInvariant();
+                if (code != null)
                 {
-                    return reasonCode == "revoked" ||
-                           reasonCode == "already_deactivated" ||
-                           reasonCode == "not_active" ||
-                           reasonCode == "not_found" ||
-                           reasonCode == "suspended" ||
-                           reasonCode == "expired";
+                    return code == "revoked" ||
+                           code == "already_deactivated" ||
+                           code == "not_active" ||
+                           code == "not_found" ||
+                           code == "suspended" ||
+                           code == "expired";
                 }
                 var message = error.Message.ToLowerInvariant();
                 return message.Contains("revoked") ||
@@ -907,7 +895,11 @@ public sealed class LicenseSeatClient : ILicenseSeatClient
             }
 
             // Sync offline assets
-            _ = Task.Run(() => SyncOfflineAssetsAsync(CancellationToken.None));
+            var license = _cache.GetLicense();
+            if (license != null)
+            {
+                _ = Task.Run(() => SyncOfflineAssetsAsync(license.Key, CancellationToken.None));
+            }
         }
         else if (wasOnline && !isOnline)
         {

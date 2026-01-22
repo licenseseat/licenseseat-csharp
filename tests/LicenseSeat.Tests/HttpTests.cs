@@ -80,6 +80,7 @@ public class HttpTests
         private static LicenseSeatClientOptions CreateOptions() => new LicenseSeatClientOptions
         {
             ApiKey = "test-api-key",
+            ProductSlug = "test-product",
             ApiBaseUrl = "https://api.test.com",
             MaxRetries = 2,
             RetryDelay = TimeSpan.FromMilliseconds(10)
@@ -105,15 +106,15 @@ public class HttpTests
         {
             var options = CreateOptions();
             var mockHttp = new MockHttpClientAdapter();
-            mockHttp.SetupPost((_, _) => new HttpResponse(200, "{\"valid\":true,\"license\":{\"license_key\":\"test\"}}"));
+            mockHttp.SetupPost((_, _) => new HttpResponse(200, "{\"valid\":true,\"license\":{\"key\":\"test\"}}"));
 
             using var client = new ApiClient(options, mockHttp);
 
-            var request = new ValidationRequest { LicenseKey = "test-key" };
+            var request = new ValidationRequest { DeviceId = "device-123" };
             var result = await client.PostAsync<ValidationRequest, ValidationResult>("/licenses/validate", request);
 
             Assert.True(result.Valid);
-            Assert.Contains("test-key", mockHttp.LastPostBody);
+            Assert.Contains("device-123", mockHttp.LastPostBody);
         }
 
         [Fact]
@@ -137,7 +138,7 @@ public class HttpTests
             var options = CreateOptions();
             options.MaxRetries = 0;
             var mockHttp = new MockHttpClientAdapter();
-            mockHttp.SetupPost((_, _) => new HttpResponse(404, "{\"error\":\"License not found\",\"reason_code\":\"license_not_found\"}"));
+            mockHttp.SetupPost((_, _) => new HttpResponse(404, "{\"error\":{\"code\":\"license_not_found\",\"message\":\"License not found\"}}"));
 
             using var client = new ApiClient(options, mockHttp);
 
@@ -145,7 +146,7 @@ public class HttpTests
                 () => client.PostAsync<ValidationRequest, ValidationResult>("/test", new ValidationRequest()));
 
             Assert.Equal(404, ex.StatusCode);
-            Assert.Equal("license_not_found", ex.ReasonCode);
+            Assert.Equal("license_not_found", ex.Code);
             Assert.Contains("License not found", ex.Message);
         }
 
@@ -155,7 +156,7 @@ public class HttpTests
             var options = CreateOptions();
             options.MaxRetries = 2;
             var mockHttp = new MockHttpClientAdapter();
-            mockHttp.SetupPost((_, _) => new HttpResponse(503, "{\"error\":\"Service unavailable\"}"));
+            mockHttp.SetupPost((_, _) => new HttpResponse(503, "{\"error\":{\"code\":\"service_unavailable\",\"message\":\"Service unavailable\"}}"));
 
             using var client = new ApiClient(options, mockHttp);
 
@@ -179,7 +180,7 @@ public class HttpTests
                 callCount++;
                 // Fail first two attempts, succeed on third
                 return callCount < 3
-                    ? new HttpResponse(503, "{\"error\":\"Service unavailable\"}")
+                    ? new HttpResponse(503, "{\"error\":{\"message\":\"Service unavailable\"}}")
                     : new HttpResponse(200, "{\"valid\":true}");
             });
 

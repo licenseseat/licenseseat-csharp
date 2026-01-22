@@ -5,6 +5,34 @@ All notable changes to the LicenseSeat Unity SDK will be documented in this file
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-01-22
+
+### Breaking Changes
+
+- **API v1 Compatibility**: Updated SDK to use new LicenseSeat API v1 endpoint structure
+- **ProductSlug Required**: `ProductSlug` is now a required configuration option
+- **Field Renames**:
+  - `device_identifier` → `device_id`
+  - `license_key` → `key`
+  - `ends_at` → `expires_at`
+  - `active_activations_count` → `active_seats`
+  - `reason_code` → `code`
+  - `reason` → `message`
+- **URL Structure**: All endpoints now use product-scoped URLs (`/api/v1/products/{slug}/licenses/{key}/...`)
+- **Underscore URLs**: API endpoints use underscores (`/offline_token`, `/signing_keys/`) instead of hyphens
+
+### Added
+
+- `Activation` class in `ValidationResult` for device-specific validation info
+- `ValidationWarning` model for API warnings
+- Public `Ed25519Verifier` for external offline token verification
+- Comprehensive integration test suite with 48 tests
+
+### Fixed
+
+- Unix timestamp units mismatch in clock tamper detection (was milliseconds, now seconds)
+- Offline token response model alignment with new API structure
+
 ## [0.2.0] - 2026-01-20
 
 ### Added

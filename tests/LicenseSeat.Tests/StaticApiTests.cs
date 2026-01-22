@@ -19,9 +19,9 @@ public class StaticApiTests : IDisposable
     }
 
     [Fact]
-    public void Configure_WithApiKey_CreatesSharedInstance()
+    public void Configure_WithApiKeyAndProductSlug_CreatesSharedInstance()
     {
-        var client = LicenseSeat.Configure("test-api-key", options =>
+        var client = LicenseSeat.Configure("test-api-key", "test-product", options =>
         {
             options.AutoInitialize = false;
         });
@@ -34,13 +34,25 @@ public class StaticApiTests : IDisposable
     [Fact]
     public void Configure_WithEmptyApiKey_ThrowsArgumentException()
     {
-        Assert.Throws<ArgumentException>(() => LicenseSeat.Configure(""));
+        Assert.Throws<ArgumentException>(() => LicenseSeat.Configure("", "test-product"));
     }
 
     [Fact]
     public void Configure_WithNullApiKey_ThrowsArgumentException()
     {
-        Assert.Throws<ArgumentException>(() => LicenseSeat.Configure((string)null!));
+        Assert.Throws<ArgumentException>(() => LicenseSeat.Configure(null!, "test-product"));
+    }
+
+    [Fact]
+    public void Configure_WithEmptyProductSlug_ThrowsArgumentException()
+    {
+        Assert.Throws<ArgumentException>(() => LicenseSeat.Configure("test-api-key", ""));
+    }
+
+    [Fact]
+    public void Configure_WithNullProductSlug_ThrowsArgumentException()
+    {
+        Assert.Throws<ArgumentException>(() => LicenseSeat.Configure("test-api-key", null!));
     }
 
     [Fact]
@@ -49,6 +61,7 @@ public class StaticApiTests : IDisposable
         var options = new LicenseSeatClientOptions
         {
             ApiKey = "test-api-key",
+            ProductSlug = "test-product",
             AutoInitialize = false
         };
 
@@ -67,8 +80,8 @@ public class StaticApiTests : IDisposable
     [Fact]
     public void Configure_CalledTwiceWithoutForce_ReturnsSameInstance()
     {
-        var options1 = new LicenseSeatClientOptions { ApiKey = "key1", AutoInitialize = false };
-        var options2 = new LicenseSeatClientOptions { ApiKey = "key2", AutoInitialize = false };
+        var options1 = new LicenseSeatClientOptions { ApiKey = "key1", ProductSlug = "product1", AutoInitialize = false };
+        var options2 = new LicenseSeatClientOptions { ApiKey = "key2", ProductSlug = "product2", AutoInitialize = false };
 
         var client1 = LicenseSeat.Configure(options1);
         var client2 = LicenseSeat.Configure(options2, force: false);
@@ -79,8 +92,8 @@ public class StaticApiTests : IDisposable
     [Fact]
     public void Configure_CalledTwiceWithForce_ReplacesInstance()
     {
-        var options1 = new LicenseSeatClientOptions { ApiKey = "key1", AutoInitialize = false };
-        var options2 = new LicenseSeatClientOptions { ApiKey = "key2", AutoInitialize = false };
+        var options1 = new LicenseSeatClientOptions { ApiKey = "key1", ProductSlug = "product1", AutoInitialize = false };
+        var options2 = new LicenseSeatClientOptions { ApiKey = "key2", ProductSlug = "product2", AutoInitialize = false };
 
         var client1 = LicenseSeat.Configure(options1);
         var client2 = LicenseSeat.Configure(options2, force: true);
@@ -149,7 +162,7 @@ public class StaticApiTests : IDisposable
     [Fact]
     public void GetStatus_AfterConfigure_ReturnsStatus()
     {
-        LicenseSeat.Configure("test-api-key", options => options.AutoInitialize = false);
+        LicenseSeat.Configure("test-api-key", "test-product", options => options.AutoInitialize = false);
 
         var status = LicenseSeat.GetStatus();
 
@@ -159,7 +172,7 @@ public class StaticApiTests : IDisposable
     [Fact]
     public void Shutdown_DisposesSharedInstance()
     {
-        LicenseSeat.Configure("test-api-key", options => options.AutoInitialize = false);
+        LicenseSeat.Configure("test-api-key", "test-product", options => options.AutoInitialize = false);
         Assert.True(LicenseSeat.IsConfigured);
 
         LicenseSeat.Shutdown();

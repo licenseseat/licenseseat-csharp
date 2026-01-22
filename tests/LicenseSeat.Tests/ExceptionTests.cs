@@ -64,16 +64,16 @@ public class ExceptionTests
 
             Assert.Equal("Not found", exception.Message);
             Assert.Equal(404, exception.StatusCode);
-            Assert.Null(exception.ReasonCode);
+            Assert.Null(exception.Code);
             Assert.Null(exception.ResponseBody);
         }
 
         [Fact]
-        public void Constructor_WithReasonCode_SetsReasonCode()
+        public void Constructor_WithCode_SetsCode()
         {
             var exception = new ApiException("Not found", 404, "license_not_found");
 
-            Assert.Equal("license_not_found", exception.ReasonCode);
+            Assert.Equal("license_not_found", exception.Code);
             Assert.Equal("license_not_found", exception.ErrorCode);
         }
 

@@ -10,7 +10,7 @@ public sealed class LicenseSeatClientOptions
     /// <summary>
     /// The default API base URL for LicenseSeat.
     /// </summary>
-    public const string DefaultApiBaseUrl = "https://licenseseat.com/api";
+    public const string DefaultApiBaseUrl = "https://licenseseat.com/api/v1";
 
     /// <summary>
     /// The default auto-validation interval (1 hour).
@@ -42,6 +42,12 @@ public sealed class LicenseSeatClientOptions
     /// Required for all authenticated API requests.
     /// </summary>
     public string? ApiKey { get; set; }
+
+    /// <summary>
+    /// Gets or sets the product slug for API requests.
+    /// Required for all license operations.
+    /// </summary>
+    public string? ProductSlug { get; set; }
 
     /// <summary>
     /// Gets or sets the base URL for the LicenseSeat API.
@@ -122,10 +128,10 @@ public sealed class LicenseSeatClientOptions
     public bool AutoInitialize { get; set; } = true;
 
     /// <summary>
-    /// Gets or sets a custom device identifier.
-    /// If not set, a device identifier will be automatically generated.
+    /// Gets or sets a custom device ID.
+    /// If not set, a device ID will be automatically generated.
     /// </summary>
-    public string? DeviceIdentifier { get; set; }
+    public string? DeviceId { get; set; }
 
     /// <summary>
     /// Gets or sets the HTTP request timeout.
@@ -162,6 +168,17 @@ public sealed class LicenseSeatClientOptions
     }
 
     /// <summary>
+    /// Creates a new instance of <see cref="LicenseSeatClientOptions"/> with the specified API key and product slug.
+    /// </summary>
+    /// <param name="apiKey">The API key for authentication.</param>
+    /// <param name="productSlug">The product slug for API requests.</param>
+    public LicenseSeatClientOptions(string apiKey, string productSlug)
+    {
+        ApiKey = apiKey ?? throw new ArgumentNullException(nameof(apiKey));
+        ProductSlug = productSlug ?? throw new ArgumentNullException(nameof(productSlug));
+    }
+
+    /// <summary>
     /// Creates a copy of this options instance.
     /// </summary>
     /// <returns>A new <see cref="LicenseSeatClientOptions"/> instance with the same values.</returns>
@@ -170,6 +187,7 @@ public sealed class LicenseSeatClientOptions
         return new LicenseSeatClientOptions
         {
             ApiKey = ApiKey,
+            ProductSlug = ProductSlug,
             ApiBaseUrl = ApiBaseUrl,
             StoragePrefix = StoragePrefix,
             AutoValidateInterval = AutoValidateInterval,
@@ -182,7 +200,7 @@ public sealed class LicenseSeatClientOptions
             MaxOfflineDays = MaxOfflineDays,
             MaxClockSkew = MaxClockSkew,
             AutoInitialize = AutoInitialize,
-            DeviceIdentifier = DeviceIdentifier,
+            DeviceId = DeviceId,
             HttpTimeout = HttpTimeout,
             HttpClientAdapter = HttpClientAdapter
         };
@@ -203,6 +221,11 @@ public sealed class LicenseSeatClientOptions
             (uri.Scheme != "http" && uri.Scheme != "https"))
         {
             throw new InvalidOperationException("ApiBaseUrl must be a valid HTTP or HTTPS URL.");
+        }
+
+        if (string.IsNullOrWhiteSpace(ProductSlug))
+        {
+            throw new InvalidOperationException("ProductSlug is required for all license operations.");
         }
 
         if (MaxRetries < 0)

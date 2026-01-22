@@ -133,12 +133,12 @@ public sealed class LicenseStatusDetails
     /// <summary>
     /// Gets or sets the license key.
     /// </summary>
-    public string LicenseKey { get; set; } = string.Empty;
+    public string Key { get; set; } = string.Empty;
 
     /// <summary>
-    /// Gets or sets the device identifier.
+    /// Gets or sets the device ID.
     /// </summary>
-    public string DeviceIdentifier { get; set; } = string.Empty;
+    public string DeviceId { get; set; } = string.Empty;
 
     /// <summary>
     /// Gets or sets when the license was activated.

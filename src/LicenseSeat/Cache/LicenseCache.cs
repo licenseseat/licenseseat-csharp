@@ -21,7 +21,8 @@ internal sealed class LicenseCache
     private readonly object _lock = new object();
 
     private License? _license;
-    private SignedOfflineLicense? _offlineLicense;
+    private OfflineTokenResponse? _offlineToken;
+    private string? _deviceId;
     private string? _publicKey;
     private string? _publicKeyId;
     private double _lastSeenTimestamp;
@@ -101,50 +102,63 @@ internal sealed class LicenseCache
     }
 
     /// <summary>
-    /// Gets the device identifier from the cached license.
+    /// Gets the device ID.
     /// </summary>
-    /// <returns>The device identifier, or null if no license is cached.</returns>
+    /// <returns>The device ID, or null if not set.</returns>
     public string? GetDeviceId()
     {
         lock (_lock)
         {
-            return _license?.DeviceIdentifier;
+            return _deviceId ?? _license?.DeviceId;
         }
     }
 
     /// <summary>
-    /// Gets the cached offline license.
+    /// Sets the device ID.
     /// </summary>
-    /// <returns>The offline license, or null if none.</returns>
-    public SignedOfflineLicense? GetOfflineLicense()
+    /// <param name="deviceId">The device ID.</param>
+    public void SetDeviceId(string deviceId)
     {
         lock (_lock)
         {
-            return _offlineLicense;
-        }
-    }
-
-    /// <summary>
-    /// Sets the cached offline license.
-    /// </summary>
-    /// <param name="offlineLicense">The offline license to cache.</param>
-    public void SetOfflineLicense(SignedOfflineLicense offlineLicense)
-    {
-        lock (_lock)
-        {
-            _offlineLicense = offlineLicense;
+            _deviceId = deviceId;
             PersistToDisk();
         }
     }
 
     /// <summary>
-    /// Clears the cached offline license.
+    /// Gets the cached offline token.
     /// </summary>
-    public void ClearOfflineLicense()
+    /// <returns>The offline token, or null if none.</returns>
+    public OfflineTokenResponse? GetOfflineToken()
     {
         lock (_lock)
         {
-            _offlineLicense = null;
+            return _offlineToken;
+        }
+    }
+
+    /// <summary>
+    /// Sets the cached offline token.
+    /// </summary>
+    /// <param name="offlineToken">The offline token to cache.</param>
+    public void SetOfflineToken(OfflineTokenResponse offlineToken)
+    {
+        lock (_lock)
+        {
+            _offlineToken = offlineToken;
+            PersistToDisk();
+        }
+    }
+
+    /// <summary>
+    /// Clears the cached offline token.
+    /// </summary>
+    public void ClearOfflineToken()
+    {
+        lock (_lock)
+        {
+            _offlineToken = null;
             _publicKey = null;
             _publicKeyId = null;
             PersistToDisk();
@@ -182,7 +196,7 @@ internal sealed class LicenseCache
     /// <summary>
     /// Gets the last seen timestamp for clock tampering detection.
     /// </summary>
-    /// <returns>The last seen timestamp as Unix time in milliseconds.</returns>
+    /// <returns>The last seen timestamp as Unix time in seconds.</returns>
     public double GetLastSeenTimestamp()
     {
         lock (_lock)
@@ -194,7 +208,7 @@ internal sealed class LicenseCache
     /// <summary>
     /// Sets the last seen timestamp.
     /// </summary>
-    /// <param name="timestamp">The timestamp as Unix time in milliseconds.</param>
+    /// <param name="timestamp">The timestamp as Unix time in seconds.</param>
     public void SetLastSeenTimestamp(double timestamp)
     {
         lock (_lock)
@@ -212,7 +226,8 @@ internal sealed class LicenseCache
         lock (_lock)
         {
             _license = null;
-            _offlineLicense = null;
+            _offlineToken = null;
+            _deviceId = null;
             _publicKey = null;
             _publicKeyId = null;
             _lastSeenTimestamp = 0;
@@ -232,7 +247,8 @@ internal sealed class LicenseCache
             var data = new CacheData
             {
                 License = _license,
-                OfflineLicense = _offlineLicense,
+                OfflineToken = _offlineToken,
+                DeviceId = _deviceId,
                 PublicKey = _publicKey,
                 PublicKeyId = _publicKeyId,
                 LastSeenTimestamp = _lastSeenTimestamp
@@ -269,7 +285,8 @@ internal sealed class LicenseCache
             if (data != null)
             {
                 _license = data.License;
-                _offlineLicense = data.OfflineLicense;
+                _offlineToken = data.OfflineToken;
+                _deviceId = data.DeviceId;
                 _publicKey = data.PublicKey;
                 _publicKeyId = data.PublicKeyId;
                 _lastSeenTimestamp = data.LastSeenTimestamp;
@@ -284,7 +301,8 @@ internal sealed class LicenseCache
     private sealed class CacheData
     {
         public License? License { get; set; }
-        public SignedOfflineLicense? OfflineLicense { get; set; }
+        public OfflineTokenResponse? OfflineToken { get; set; }
+        public string? DeviceId { get; set; }
         public string? PublicKey { get; set; }
         public string? PublicKeyId { get; set; }
         public double LastSeenTimestamp { get; set; }

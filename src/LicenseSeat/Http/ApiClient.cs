@@ -217,8 +217,17 @@ internal sealed class ApiClient : IDisposable
         try
         {
             var error = JsonSerializer.Deserialize<ApiErrorResponse>(response.Body, JsonOptions);
-            var message = error?.Error ?? error?.Message ?? $"Request failed with status {response.StatusCode}";
-            return new ApiException(message, response.StatusCode, error?.ReasonCode, response.Body);
+
+            // New API format: { "error": { "code": "...", "message": "...", "details": {...} } }
+            if (error?.Error != null)
+            {
+                var message = error.Error.Message ?? $"Request failed with status {response.StatusCode}";
+                return new ApiException(message, response.StatusCode, error.Error.Code, response.Body);
+            }
+
+            // Fallback for simple error format
+            var fallbackMessage = error?.Message ?? $"Request failed with status {response.StatusCode}";
+            return new ApiException(fallbackMessage, response.StatusCode, null, response.Body);
         }
         catch (JsonException)
         {
