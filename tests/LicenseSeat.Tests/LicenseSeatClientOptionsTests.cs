@@ -28,6 +28,9 @@ public class LicenseSeatClientOptionsTests
         Assert.Null(options.DeviceId);
         Assert.Equal(TimeSpan.FromSeconds(30), options.HttpTimeout);
         Assert.Null(options.HttpClientAdapter);
+        Assert.Equal(TimeSpan.FromMinutes(5), options.HeartbeatInterval);
+        Assert.Null(options.AppVersion);
+        Assert.Null(options.AppBuild);
     }
 
     [Fact]
@@ -73,7 +76,10 @@ public class LicenseSeatClientOptionsTests
             AutoInitialize = false,
             DeviceId = "device-123",
             HttpTimeout = TimeSpan.FromSeconds(60),
-            HttpClientAdapter = mockAdapter
+            HttpClientAdapter = mockAdapter,
+            HeartbeatInterval = TimeSpan.FromMinutes(10),
+            AppVersion = "2.0.0",
+            AppBuild = "100"
         };
 
         var clone = original.Clone();
@@ -96,6 +102,9 @@ public class LicenseSeatClientOptionsTests
         Assert.Equal(original.DeviceId, clone.DeviceId);
         Assert.Equal(original.HttpTimeout, clone.HttpTimeout);
         Assert.Same(original.HttpClientAdapter, clone.HttpClientAdapter);
+        Assert.Equal(original.HeartbeatInterval, clone.HeartbeatInterval);
+        Assert.Equal(original.AppVersion, clone.AppVersion);
+        Assert.Equal(original.AppBuild, clone.AppBuild);
     }
 
     /// <summary>
