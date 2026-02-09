@@ -47,6 +47,8 @@ public static class TelemetryStressTest
         await Scenario5_AutoValidationCycles();
         await Scenario6_ConcurrentStress();
         await Scenario7_FullLifecycle();
+        await Scenario8_EnrichedTelemetryFields();
+        await Scenario9_SeparateHeartbeatTimer();
 
         PrintSummary();
 
@@ -579,6 +581,220 @@ public static class TelemetryStressTest
         catch (Exception ex)
         {
             PrintTest("Full lifecycle", false, ex.Message);
+            await ForceDeactivate();
+        }
+        finally
+        {
+            client?.Dispose();
+        }
+    }
+
+    // ================================================================
+    // Scenario 8: Enriched Telemetry Fields
+    // ================================================================
+    private static async Task Scenario8_EnrichedTelemetryFields()
+    {
+        PrintHeader("Scenario 8: Enriched Telemetry Fields Reach Server");
+
+        // First, verify local telemetry collection
+        var payload = TelemetryPayload.Collect();
+
+        PrintTest("sdk_version collected", !string.IsNullOrEmpty(payload.SdkVersion));
+        PrintTest("os_name collected", !string.IsNullOrEmpty(payload.OsName));
+        PrintTest("os_version collected", !string.IsNullOrEmpty(payload.OsVersion));
+        PrintTest("platform is 'native' (not OS name)", payload.Platform == "native",
+            payload.Platform != "native" ? $"Got '{payload.Platform}'" : null);
+        PrintTest("device_model collected", !string.IsNullOrEmpty(payload.DeviceModel));
+        PrintTest("locale collected", !string.IsNullOrEmpty(payload.Locale));
+        PrintTest("timezone collected", !string.IsNullOrEmpty(payload.Timezone));
+
+        // Verify timezone is IANA format (no "Standard Time" suffix)
+        var tzIsIana = !payload.Timezone.Contains("Standard Time") && !payload.Timezone.Contains("Daylight Time");
+        PrintTest("timezone is IANA format", tzIsIana,
+            !tzIsIana ? $"Got '{payload.Timezone}'" : null);
+
+        // New fields
+        PrintTest("device_type collected", !string.IsNullOrEmpty(payload.DeviceType),
+            string.IsNullOrEmpty(payload.DeviceType) ? "null or empty" : null);
+        PrintTest("architecture collected", !string.IsNullOrEmpty(payload.Architecture),
+            string.IsNullOrEmpty(payload.Architecture) ? "null or empty" : null);
+        PrintTest("architecture is lowercase", payload.Architecture == payload.Architecture?.ToLowerInvariant(),
+            payload.Architecture != payload.Architecture?.ToLowerInvariant() ? $"Got '{payload.Architecture}'" : null);
+        PrintTest("cpu_cores > 0", payload.CpuCores > 0,
+            payload.CpuCores <= 0 ? $"Got {payload.CpuCores}" : null);
+        PrintTest("memory_gb > 0", payload.MemoryGb > 0,
+            payload.MemoryGb <= 0 ? $"Got {payload.MemoryGb}" : null);
+        PrintTest("language collected", !string.IsNullOrEmpty(payload.Language),
+            string.IsNullOrEmpty(payload.Language) ? "null or empty" : null);
+        PrintTest("runtime_version collected", !string.IsNullOrEmpty(payload.RuntimeVersion),
+            string.IsNullOrEmpty(payload.RuntimeVersion) ? "null or empty" : null);
+
+        // Verify ToDictionary includes all new keys
+        var dict = payload.ToDictionary();
+        var requiredKeys = new[] { "sdk_version", "os_name", "os_version", "platform", "locale", "timezone",
+            "device_type", "architecture", "cpu_cores", "language", "runtime_version" };
+        foreach (var key in requiredKeys)
+        {
+            PrintTest($"ToDictionary has '{key}'", dict.ContainsKey(key),
+                !dict.ContainsKey(key) ? $"Missing key: {key}" : null);
+        }
+
+        Log($"  sdk_version:     {payload.SdkVersion}");
+        Log($"  os_name:         {payload.OsName}");
+        Log($"  os_version:      {payload.OsVersion}");
+        Log($"  platform:        {payload.Platform}");
+        Log($"  device_model:    {payload.DeviceModel}");
+        Log($"  locale:          {payload.Locale}");
+        Log($"  timezone:        {payload.Timezone}");
+        Log($"  device_type:     {payload.DeviceType}");
+        Log($"  architecture:    {payload.Architecture}");
+        Log($"  cpu_cores:       {payload.CpuCores}");
+        Log($"  memory_gb:       {payload.MemoryGb}");
+        Log($"  language:        {payload.Language}");
+        Log($"  runtime_version: {payload.RuntimeVersion}");
+        Log($"  app_version:     {payload.AppVersion ?? "(auto-detect)"}");
+        Log($"  app_build:       {payload.AppBuild ?? "(auto-detect)"}");
+
+        // Now activate and validate against the actual server to confirm telemetry is accepted
+        LicenseSeatClient? client = null;
+        try
+        {
+            client = CreateClient(telemetryEnabled: true, autoValidateInterval: TimeSpan.Zero);
+
+            try
+            {
+                await client.ActivateAsync(LICENSE_KEY);
+            }
+            catch (ApiException ex) when (ex.Code == "already_activated" || ex.Code == "seat_limit_exceeded")
+            {
+                Log($"  {ex.Code} -- continuing");
+                await client.ValidateAsync(LICENSE_KEY);
+            }
+
+            // Validate with enriched telemetry — server should accept it
+            var result = await client.ValidateAsync(LICENSE_KEY);
+            PrintTest("Server accepts enriched telemetry (validate)", result.Valid,
+                !result.Valid ? $"valid={result.Valid}" : null);
+
+            // Heartbeat with enriched telemetry
+            try
+            {
+                await client.HeartbeatAsync();
+                PrintTest("Server accepts enriched telemetry (heartbeat)", true);
+            }
+            catch (Exception ex)
+            {
+                PrintTest("Server accepts enriched telemetry (heartbeat)", false, ex.Message);
+            }
+
+            // Deactivate
+            try
+            {
+                await client.DeactivateAsync();
+            }
+            catch
+            {
+                await ForceDeactivate();
+            }
+        }
+        catch (Exception ex)
+        {
+            PrintTest("Enriched telemetry server test", false, ex.Message);
+            await ForceDeactivate();
+        }
+        finally
+        {
+            client?.Dispose();
+        }
+    }
+
+    // ================================================================
+    // Scenario 9: Separate Heartbeat Timer
+    // ================================================================
+    private static async Task Scenario9_SeparateHeartbeatTimer()
+    {
+        PrintHeader("Scenario 9: Separate Heartbeat Timer");
+
+        LicenseSeatClient? client = null;
+        try
+        {
+            // Heartbeat every 3 seconds, auto-validation every 30 seconds (won't fire in test window)
+            client = new LicenseSeatClient(new LicenseSeatClientOptions
+            {
+                ApiKey = API_KEY,
+                ProductSlug = PRODUCT_SLUG,
+                ApiBaseUrl = API_URL,
+                AutoInitialize = false,
+                AutoValidateInterval = TimeSpan.FromSeconds(30),
+                HeartbeatInterval = TimeSpan.FromSeconds(3),
+                TelemetryEnabled = true,
+                Debug = false,
+                MaxRetries = 1,
+                RetryDelay = TimeSpan.FromMilliseconds(500),
+            });
+
+            var heartbeatCount = 0;
+            var validationCycleCount = 0;
+
+            client.Events.On(LicenseSeatEvents.HeartbeatSuccess, _ =>
+            {
+                Interlocked.Increment(ref heartbeatCount);
+            });
+            client.Events.On(LicenseSeatEvents.AutoValidationCycle, _ =>
+            {
+                Interlocked.Increment(ref validationCycleCount);
+            });
+
+            // Activate
+            try
+            {
+                await client.ActivateAsync(LICENSE_KEY);
+                PrintTest("Activate for heartbeat timer test", true);
+            }
+            catch (ApiException ex) when (ex.Code == "already_activated" || ex.Code == "seat_limit_exceeded")
+            {
+                PrintTest($"Activate ({ex.Code} OK)", true);
+                await client.ValidateAsync(LICENSE_KEY);
+            }
+
+            // Wait ~10 seconds for heartbeat timer firings
+            Log("  Waiting ~10 seconds for separate heartbeat timer...");
+            await Task.Delay(10_000);
+
+            var totalHeartbeats = heartbeatCount;
+            var totalValidationCycles = validationCycleCount;
+
+            // Heartbeat timer fires every 3s -> in 10s we expect ~3 firings
+            PrintTest($"Heartbeat timer fired ({totalHeartbeats} times, need >= 2)", totalHeartbeats >= 2,
+                totalHeartbeats < 2 ? $"Only {totalHeartbeats} heartbeat timer firings in 10s" : null);
+
+            // Auto-validation is at 30s -> should NOT have fired any validation cycle timer
+            // (the initial cycle event fires at start, so we may see 1, but no timer-based validations)
+            PrintTest($"Auto-validation did NOT fire timer ({totalValidationCycles} cycles)", totalValidationCycles <= 1,
+                totalValidationCycles > 1 ? $"Got {totalValidationCycles} validation cycles (expected <= 1)" : null);
+
+            PrintTest("Heartbeat fires independently from auto-validation", totalHeartbeats > totalValidationCycles,
+                totalHeartbeats <= totalValidationCycles
+                    ? $"heartbeats={totalHeartbeats}, validationCycles={totalValidationCycles}"
+                    : null);
+
+            Log($"  Heartbeat count:      {totalHeartbeats}");
+            Log($"  Validation cycles:    {totalValidationCycles}");
+
+            // Deactivate
+            try
+            {
+                await client.DeactivateAsync();
+            }
+            catch
+            {
+                await ForceDeactivate();
+            }
+            PrintTest("Deactivate after heartbeat timer test", true);
+        }
+        catch (Exception ex)
+        {
+            PrintTest("Separate heartbeat timer", false, ex.Message);
             await ForceDeactivate();
         }
         finally
