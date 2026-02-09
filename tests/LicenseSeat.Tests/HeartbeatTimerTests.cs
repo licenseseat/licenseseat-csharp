@@ -177,17 +177,18 @@ public class HeartbeatTimerTests
 
         // Wait for some heartbeats
         await Task.Delay(500);
-        var countBeforeDeactivation = mockHttp.HeartbeatCount;
-        Assert.True(countBeforeDeactivation >= 1, "Should have at least 1 heartbeat before deactivation");
+        Assert.True(mockHttp.HeartbeatCount >= 1, "Should have at least 1 heartbeat before deactivation");
 
         // Deactivate -- timer should stop
         await client.DeactivateAsync();
 
-        // Wait and check no more heartbeats fire
-        await Task.Delay(500);
+        // Allow any in-flight heartbeat to complete, then snapshot
+        await Task.Delay(100);
         var countAfterDeactivation = mockHttp.HeartbeatCount;
 
-        Assert.Equal(countBeforeDeactivation, countAfterDeactivation);
+        // Wait and verify no more heartbeats fire
+        await Task.Delay(500);
+        Assert.Equal(countAfterDeactivation, mockHttp.HeartbeatCount);
     }
 
     // ================================================================
@@ -211,13 +212,16 @@ public class HeartbeatTimerTests
         await client.ActivateAsync("TEST-KEY");
 
         await Task.Delay(500);
-        var countBeforeReset = mockHttp.HeartbeatCount;
-        Assert.True(countBeforeReset >= 1);
+        Assert.True(mockHttp.HeartbeatCount >= 1);
 
         client.Reset();
 
+        // Allow any in-flight heartbeat to complete, then snapshot
+        await Task.Delay(100);
+        var countAfterReset = mockHttp.HeartbeatCount;
+
         await Task.Delay(500);
-        Assert.Equal(countBeforeReset, mockHttp.HeartbeatCount);
+        Assert.Equal(countAfterReset, mockHttp.HeartbeatCount);
     }
 
     // ================================================================
@@ -241,12 +245,15 @@ public class HeartbeatTimerTests
         await client.ActivateAsync("TEST-KEY");
 
         await Task.Delay(500);
-        var countBeforeDispose = mockHttp.HeartbeatCount;
 
         client.Dispose();
 
+        // Allow any in-flight heartbeat to complete, then snapshot
+        await Task.Delay(100);
+        var countAfterDispose = mockHttp.HeartbeatCount;
+
         await Task.Delay(500);
-        Assert.Equal(countBeforeDispose, mockHttp.HeartbeatCount);
+        Assert.Equal(countAfterDispose, mockHttp.HeartbeatCount);
     }
 
     // ================================================================
@@ -270,13 +277,16 @@ public class HeartbeatTimerTests
         await client.ActivateAsync("TEST-KEY");
 
         await Task.Delay(500);
-        var countBeforePurge = mockHttp.HeartbeatCount;
-        Assert.True(countBeforePurge >= 1);
+        Assert.True(mockHttp.HeartbeatCount >= 1);
 
         client.PurgeCachedLicense();
 
+        // Allow any in-flight heartbeat to complete, then snapshot
+        await Task.Delay(100);
+        var countAfterPurge = mockHttp.HeartbeatCount;
+
         await Task.Delay(500);
-        Assert.Equal(countBeforePurge, mockHttp.HeartbeatCount);
+        Assert.Equal(countAfterPurge, mockHttp.HeartbeatCount);
     }
 
     // ================================================================
