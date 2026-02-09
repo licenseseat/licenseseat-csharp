@@ -49,6 +49,7 @@ public static class TelemetryStressTest
         await Scenario7_FullLifecycle();
         await Scenario8_EnrichedTelemetryFields();
         await Scenario9_SeparateHeartbeatTimer();
+        await Scenario10_HeartbeatTimerDisabled();
 
         PrintSummary();
 
@@ -795,6 +796,88 @@ public static class TelemetryStressTest
         catch (Exception ex)
         {
             PrintTest("Separate heartbeat timer", false, ex.Message);
+            await ForceDeactivate();
+        }
+        finally
+        {
+            client?.Dispose();
+        }
+    }
+
+    // ================================================================
+    // Scenario 10: Heartbeat Timer Disabled (HeartbeatInterval = Zero)
+    // ================================================================
+    private static async Task Scenario10_HeartbeatTimerDisabled()
+    {
+        PrintHeader("Scenario 10: Heartbeat Timer Disabled (HeartbeatInterval = Zero)");
+
+        LicenseSeatClient? client = null;
+        try
+        {
+            client = new LicenseSeatClient(new LicenseSeatClientOptions
+            {
+                ApiKey = API_KEY,
+                ProductSlug = PRODUCT_SLUG,
+                ApiBaseUrl = API_URL,
+                AutoInitialize = false,
+                AutoValidateInterval = TimeSpan.Zero,
+                HeartbeatInterval = TimeSpan.Zero, // Disabled
+                TelemetryEnabled = true,
+                Debug = false,
+                MaxRetries = 1,
+                RetryDelay = TimeSpan.FromMilliseconds(500),
+            });
+
+            var heartbeatCount = 0;
+            client.Events.On(LicenseSeatEvents.HeartbeatSuccess, _ =>
+            {
+                Interlocked.Increment(ref heartbeatCount);
+            });
+
+            // Activate
+            try
+            {
+                await client.ActivateAsync(LICENSE_KEY);
+                PrintTest("Activate (heartbeat disabled)", true);
+            }
+            catch (ApiException ex) when (ex.Code == "already_activated" || ex.Code == "seat_limit_exceeded")
+            {
+                PrintTest($"Activate ({ex.Code} OK, heartbeat disabled)", true);
+                await client.ValidateAsync(LICENSE_KEY);
+            }
+
+            // Wait 5 seconds -- no heartbeat timer should fire
+            Log("  Waiting 5 seconds to confirm no heartbeat timer fires...");
+            await Task.Delay(5_000);
+
+            PrintTest($"No heartbeat timer fired ({heartbeatCount} heartbeats)", heartbeatCount == 0,
+                heartbeatCount > 0 ? $"Got {heartbeatCount} unexpected heartbeats" : null);
+
+            // Manual heartbeat should still work
+            try
+            {
+                await client.HeartbeatAsync();
+                PrintTest("Manual HeartbeatAsync still works", true);
+            }
+            catch (Exception ex)
+            {
+                PrintTest("Manual HeartbeatAsync still works", false, ex.Message);
+            }
+
+            // Deactivate
+            try
+            {
+                await client.DeactivateAsync();
+            }
+            catch
+            {
+                await ForceDeactivate();
+            }
+            PrintTest("Deactivate (heartbeat disabled)", true);
+        }
+        catch (Exception ex)
+        {
+            PrintTest("Heartbeat timer disabled", false, ex.Message);
             await ForceDeactivate();
         }
         finally
