@@ -8,6 +8,8 @@ using Microsoft.Extensions.DependencyInjection;
 using LicenseSeatStatic = LicenseSeat.LicenseSeat;
 
 // Credentials from environment variables (for CI/CD and local testing)
+var API_URL = Environment.GetEnvironmentVariable("LICENSESEAT_API_URL")
+    ?? LicenseSeatClientOptions.DefaultApiBaseUrl;
 var API_KEY = Environment.GetEnvironmentVariable("LICENSESEAT_API_KEY")
     ?? throw new InvalidOperationException("LICENSESEAT_API_KEY environment variable is required");
 var PRODUCT_SLUG = Environment.GetEnvironmentVariable("LICENSESEAT_PRODUCT_SLUG")
@@ -92,6 +94,7 @@ RunSyncTest("Create client with options", () =>
 {
     client = new LicenseSeatClient(new LicenseSeatClientOptions
     {
+        ApiBaseUrl = API_URL,
         ApiKey = API_KEY,
         ProductSlug = PRODUCT_SLUG,
         AutoInitialize = false,
@@ -294,6 +297,7 @@ RunSyncTest("LicenseSeat.Configure - Setup singleton", () =>
 
     var staticClient = LicenseSeatStatic.Configure(API_KEY, PRODUCT_SLUG, options =>
     {
+        options.ApiBaseUrl = API_URL;
         options.AutoInitialize = false;
         options.AutoValidateInterval = TimeSpan.Zero;
         options.Debug = true;
@@ -390,6 +394,7 @@ RunSyncTest("DI: AddLicenseSeatClient with configure", () =>
     var services = new ServiceCollection();
     services.AddLicenseSeatClient(options =>
     {
+        options.ApiBaseUrl = API_URL;
         options.ApiKey = API_KEY;
         options.ProductSlug = PRODUCT_SLUG;
         options.AutoInitialize = false;
@@ -424,6 +429,7 @@ await RunTest("DI: Use client via ILicenseSeatClient interface", async () =>
     var services = new ServiceCollection();
     services.AddLicenseSeatClient(options =>
     {
+        options.ApiBaseUrl = API_URL;
         options.ApiKey = API_KEY;
         options.ProductSlug = PRODUCT_SLUG;
         options.AutoInitialize = false;
@@ -454,6 +460,7 @@ await RunTest("Error: Invalid license key - 404 Not Found", async () =>
 {
     using var errorClient = new LicenseSeatClient(new LicenseSeatClientOptions
     {
+        ApiBaseUrl = API_URL,
         ApiKey = API_KEY,
         ProductSlug = PRODUCT_SLUG,
         AutoInitialize = false,
@@ -499,6 +506,7 @@ await RunTest("Error: Verify ApiException properties", async () =>
 {
     using var errorClient = new LicenseSeatClient(new LicenseSeatClientOptions
     {
+        ApiBaseUrl = API_URL,
         ApiKey = API_KEY,
         ProductSlug = PRODUCT_SLUG,
         AutoInitialize = false,
@@ -561,6 +569,7 @@ await RunTest("Stress: 20 concurrent validations", async () =>
 {
     using var stressClient = new LicenseSeatClient(new LicenseSeatClientOptions
     {
+        ApiBaseUrl = API_URL,
         ApiKey = API_KEY,
         ProductSlug = PRODUCT_SLUG,
         AutoInitialize = false,
