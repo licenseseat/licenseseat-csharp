@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -84,6 +86,11 @@ internal sealed class ApiClient : IDisposable
     {
         var url = BuildUrl(path);
         var jsonBody = JsonSerializer.Serialize(request, JsonOptions);
+
+        if (_options.TelemetryEnabled)
+        {
+            jsonBody = InjectTelemetry(jsonBody);
+        }
 
         return await ExecuteWithRetryAsync<TResponse>(
             () => _httpClient.PostAsync(url, jsonBody, cancellationToken),
@@ -251,6 +258,26 @@ internal sealed class ApiClient : IDisposable
         delayMs += jitter;
 
         return TimeSpan.FromMilliseconds(delayMs);
+    }
+
+    private static string InjectTelemetry(string jsonBody)
+    {
+        try
+        {
+            var node = JsonNode.Parse(jsonBody);
+            if (node is JsonObject obj)
+            {
+                obj["telemetry"] = JsonSerializer.SerializeToNode(
+                    TelemetryPayload.Collect().ToDictionary(), JsonOptions);
+                return node.ToJsonString(JsonOptions);
+            }
+        }
+        catch
+        {
+            // If telemetry injection fails, send the request without it
+        }
+
+        return jsonBody;
     }
 
     private string BuildUrl(string path)

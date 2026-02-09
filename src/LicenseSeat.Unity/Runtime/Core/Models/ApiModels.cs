@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
 
@@ -55,6 +56,31 @@ internal sealed class OfflineTokenRequest
     [JsonPropertyName("ttl_days")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public int? TtlDays { get; set; }
+}
+
+/// <summary>
+/// Request model for sending a heartbeat.
+/// POST /products/{slug}/licenses/{key}/heartbeat
+/// </summary>
+internal sealed class HeartbeatRequest
+{
+    [JsonPropertyName("device_id")]
+    public string DeviceId { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Response model for heartbeat endpoint.
+/// POST /products/{slug}/licenses/{key}/heartbeat
+/// </summary>
+public sealed class HeartbeatResponse
+{
+    /// <summary>Gets or sets the object type.</summary>
+    [JsonPropertyName("object")]
+    public string? Object { get; set; }
+
+    /// <summary>Gets or sets the server-acknowledged timestamp.</summary>
+    [JsonPropertyName("received_at")]
+    public DateTimeOffset ReceivedAt { get; set; }
 }
 
 /// <summary>

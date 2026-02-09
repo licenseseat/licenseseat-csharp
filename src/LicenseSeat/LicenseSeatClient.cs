@@ -25,6 +25,11 @@ namespace LicenseSeat;
 /// </example>
 public sealed class LicenseSeatClient : ILicenseSeatClient
 {
+    /// <summary>
+    /// The current SDK version.
+    /// </summary>
+    public const string SdkVersion = "0.4.0";
+
     private readonly LicenseSeatClientOptions _options;
     private readonly ApiClient _apiClient;
     private readonly LicenseCache _cache;
@@ -32,6 +37,7 @@ public sealed class LicenseSeatClient : ILicenseSeatClient
     private readonly object _lock = new object();
 
     private Timer? _validationTimer;
+    private Timer? _heartbeatTimer;
 #pragma warning disable CS0414, CA1805 // Field reserved for future connectivity polling
     private Timer? _connectivityTimer = null;
 #pragma warning restore CS0414, CA1805
@@ -63,6 +69,10 @@ public sealed class LicenseSeatClient : ILicenseSeatClient
     {
         _options = options?.Clone() ?? throw new ArgumentNullException(nameof(options));
         _options.Validate();
+
+        // Pass user-provided telemetry overrides
+        TelemetryPayload.UserAppVersion = _options.AppVersion;
+        TelemetryPayload.UserAppBuild = _options.AppBuild;
 
         _eventBus = new EventBus();
         _cache = new LicenseCache(_options.StoragePrefix);
@@ -101,6 +111,10 @@ public sealed class LicenseSeatClient : ILicenseSeatClient
         _options = options?.Clone() ?? throw new ArgumentNullException(nameof(options));
         _options.Validate();
 
+        // Pass user-provided telemetry overrides
+        TelemetryPayload.UserAppVersion = _options.AppVersion;
+        TelemetryPayload.UserAppBuild = _options.AppBuild;
+
         _eventBus = new EventBus();
         _cache = new LicenseCache(_options.StoragePrefix);
         _apiClient = new ApiClient(_options, httpClient);
@@ -126,10 +140,11 @@ public sealed class LicenseSeatClient : ILicenseSeatClient
         {
             _eventBus.Emit(LicenseSeatEvents.LicenseLoaded, cachedLicense);
 
-            // Start auto-validation if API key is configured
+            // Start auto-validation and heartbeat if API key is configured
             if (!string.IsNullOrEmpty(_options.ApiKey))
             {
                 StartAutoValidation(cachedLicense.Key);
+                StartHeartbeat(cachedLicense.Key);
 
                 // Validate in background
                 _ = Task.Run(async () =>
@@ -212,8 +227,9 @@ public sealed class LicenseSeatClient : ILicenseSeatClient
             _cache.SetDeviceId(deviceId);
             _cache.UpdateValidation(new ValidationResult { Valid = true, Optimistic = true });
 
-            // Start auto-validation
+            // Start auto-validation and heartbeat
             StartAutoValidation(licenseKey);
+            StartHeartbeat(licenseKey);
 
             // Sync offline assets in background
             _ = Task.Run(() => SyncOfflineAssetsAsync(licenseKey, CancellationToken.None), CancellationToken.None);
@@ -300,6 +316,7 @@ public sealed class LicenseSeatClient : ILicenseSeatClient
             {
                 _eventBus.Emit(LicenseSeatEvents.ValidationFailed, result);
                 StopAutoValidation();
+                StopHeartbeat();
                 _currentAutoLicenseKey = null;
             }
 
@@ -329,6 +346,7 @@ public sealed class LicenseSeatClient : ILicenseSeatClient
                 {
                     _eventBus.Emit(LicenseSeatEvents.ValidationOfflineFailed, offlineResult);
                     StopAutoValidation();
+                    StopHeartbeat();
                     _currentAutoLicenseKey = null;
                     return offlineResult;
                 }
@@ -485,6 +503,7 @@ public sealed class LicenseSeatClient : ILicenseSeatClient
     public void Reset()
     {
         StopAutoValidation();
+        StopHeartbeat();
         StopOfflineRefresh();
         _cache.Clear();
         _currentAutoLicenseKey = null;
@@ -499,6 +518,7 @@ public sealed class LicenseSeatClient : ILicenseSeatClient
     {
         _cache.Clear();
         StopAutoValidation();
+        StopHeartbeat();
         StopOfflineRefresh();
         _currentAutoLicenseKey = null;
         _eventBus.Emit(LicenseSeatEvents.SdkReset, null);
@@ -527,6 +547,40 @@ public sealed class LicenseSeatClient : ILicenseSeatClient
         catch (Exception ex)
         {
             _eventBus.Emit(LicenseSeatEvents.AuthTestError, new { Error = ex });
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Sends a heartbeat for the current active license.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    public async Task HeartbeatAsync(CancellationToken cancellationToken = default)
+    {
+        var license = _cache.GetLicense();
+        if (license == null)
+        {
+            Log("No active license for heartbeat");
+            return;
+        }
+
+        var deviceId = _cache.GetDeviceId() ?? _options.DeviceId ?? DeviceIdentifier.Generate();
+        var request = new HeartbeatRequest { DeviceId = deviceId };
+
+        try
+        {
+            await _apiClient.PostAsync<HeartbeatRequest, HeartbeatResponse>(
+                $"/products/{_options.ProductSlug}/licenses/{license.Key}/heartbeat",
+                request,
+                cancellationToken
+            ).ConfigureAwait(false);
+
+            _eventBus.Emit(LicenseSeatEvents.HeartbeatSuccess);
+            Log("Heartbeat sent successfully");
+        }
+        catch (Exception ex)
+        {
+            _eventBus.Emit(LicenseSeatEvents.HeartbeatError, new { Error = ex });
             throw;
         }
     }
@@ -588,10 +642,62 @@ public sealed class LicenseSeatClient : ILicenseSeatClient
             _eventBus.Emit(LicenseSeatEvents.ValidationAutoFailed, new { LicenseKey = licenseKey, Error = ex });
         }
 
+        // Fire-and-forget heartbeat after validation
+        try
+        {
+            await HeartbeatAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            Log($"Heartbeat failed: {ex.Message}");
+        }
+
         _eventBus.Emit(LicenseSeatEvents.AutoValidationCycle, new
         {
             NextRunAt = DateTimeOffset.UtcNow.Add(_options.AutoValidateInterval)
         });
+    }
+
+    // ============================================================
+    // Heartbeat Timer
+    // ============================================================
+
+    private void StartHeartbeat(string licenseKey)
+    {
+        StopHeartbeat();
+
+        if (_options.HeartbeatInterval <= TimeSpan.Zero)
+        {
+            return;
+        }
+
+        _heartbeatTimer = new Timer(
+            _ => PerformHeartbeat(),
+            null,
+            _options.HeartbeatInterval,
+            _options.HeartbeatInterval
+        );
+    }
+
+    private void StopHeartbeat()
+    {
+        lock (_lock)
+        {
+            _heartbeatTimer?.Dispose();
+            _heartbeatTimer = null;
+        }
+    }
+
+    private async void PerformHeartbeat()
+    {
+        try
+        {
+            await HeartbeatAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            Log($"Heartbeat timer failed: {ex.Message}");
+        }
     }
 
     // ============================================================
@@ -824,6 +930,7 @@ public sealed class LicenseSeatClient : ILicenseSeatClient
         _cache.ClearLicense();
         _cache.ClearOfflineToken();
         StopAutoValidation();
+        StopHeartbeat();
         StopOfflineRefresh();
         _currentAutoLicenseKey = null;
     }
@@ -888,10 +995,17 @@ public sealed class LicenseSeatClient : ILicenseSeatClient
         {
             _eventBus.Emit(LicenseSeatEvents.NetworkOnline, null);
 
-            // Restart auto-validation if we have a license
-            if (!string.IsNullOrEmpty(_currentAutoLicenseKey) && _validationTimer == null)
+            // Restart auto-validation and heartbeat if we have a license
+            if (!string.IsNullOrEmpty(_currentAutoLicenseKey))
             {
-                StartAutoValidation(_currentAutoLicenseKey!);
+                if (_validationTimer == null)
+                {
+                    StartAutoValidation(_currentAutoLicenseKey!);
+                }
+                if (_heartbeatTimer == null)
+                {
+                    StartHeartbeat(_currentAutoLicenseKey!);
+                }
             }
 
             // Sync offline assets
@@ -905,6 +1019,7 @@ public sealed class LicenseSeatClient : ILicenseSeatClient
         {
             _eventBus.Emit(LicenseSeatEvents.NetworkOffline, null);
             StopAutoValidation();
+            StopHeartbeat();
         }
     }
 
@@ -938,6 +1053,12 @@ public sealed class LicenseSeatClient : ILicenseSeatClient
     public void Deactivate()
     {
         RunSync(() => DeactivateAsync(CancellationToken.None));
+    }
+
+    /// <inheritdoc/>
+    public void Heartbeat()
+    {
+        RunSync(() => HeartbeatAsync(CancellationToken.None));
     }
 
     /// <inheritdoc/>
@@ -977,6 +1098,7 @@ public sealed class LicenseSeatClient : ILicenseSeatClient
         _disposed = true;
 
         StopAutoValidation();
+        StopHeartbeat();
         StopOfflineRefresh();
         _connectivityTimer?.Dispose();
         _apiClient.Dispose();

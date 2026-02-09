@@ -128,6 +128,32 @@ public sealed class LicenseSeatClientOptions
     public bool AutoInitialize { get; set; } = true;
 
     /// <summary>
+    /// Gets or sets whether to include device telemetry with API requests.
+    /// Set to false to disable telemetry (e.g., for GDPR compliance).
+    /// Default: true.
+    /// </summary>
+    public bool TelemetryEnabled { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets the interval between heartbeat sends.
+    /// Set to <see cref="TimeSpan.Zero"/> or negative to disable the separate heartbeat timer.
+    /// Defaults to 5 minutes.
+    /// </summary>
+    public TimeSpan HeartbeatInterval { get; set; } = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    /// Gets or sets the application version for telemetry.
+    /// If not set, the SDK attempts to detect it from the entry assembly.
+    /// </summary>
+    public string? AppVersion { get; set; }
+
+    /// <summary>
+    /// Gets or sets the application build identifier for telemetry.
+    /// If not set, the SDK attempts to detect it from the entry assembly's informational version.
+    /// </summary>
+    public string? AppBuild { get; set; }
+
+    /// <summary>
     /// Gets or sets a custom device ID.
     /// If not set, a device ID will be automatically generated.
     /// </summary>
@@ -200,6 +226,10 @@ public sealed class LicenseSeatClientOptions
             MaxOfflineDays = MaxOfflineDays,
             MaxClockSkew = MaxClockSkew,
             AutoInitialize = AutoInitialize,
+            TelemetryEnabled = TelemetryEnabled,
+            HeartbeatInterval = HeartbeatInterval,
+            AppVersion = AppVersion,
+            AppBuild = AppBuild,
             DeviceId = DeviceId,
             HttpTimeout = HttpTimeout,
             HttpClientAdapter = HttpClientAdapter

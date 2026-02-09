@@ -47,6 +47,8 @@ That's it. You're licensed.
 | **Entitlements**       | Feature gating with usage limits and expiration |
 | **Offline Mode**       | Ed25519 signature verification when offline     |
 | **Auto-Validation**    | Background validation at configurable intervals |
+| **Heartbeat**          | Periodic liveness pings with auto-heartbeat     |
+| **Telemetry**          | Device and environment data sent with requests  |
 | **Events**             | React to license changes in real-time           |
 | **DI Support**         | First-class ASP.NET Core integration            |
 
@@ -233,6 +235,13 @@ client.Events.On(LicenseSeatEvents.LicenseActivated, license =>
 
 client.Events.On(LicenseSeatEvents.LicenseDeactivated, _ =>
     Console.WriteLine("License deactivated"));
+
+// Heartbeat events
+client.Events.On(LicenseSeatEvents.HeartbeatSuccess, _ =>
+    Console.WriteLine("Heartbeat sent"));
+
+client.Events.On(LicenseSeatEvents.HeartbeatError, data =>
+    Console.WriteLine("Heartbeat failed"));
 ```
 
 ### Offline Validation
@@ -339,10 +348,14 @@ Full Unity docs: [src/LicenseSeat.Unity/README.md](src/LicenseSeat.Unity/README.
 
 | Option                 | Default                            | Description                                   |
 | ---------------------- | ---------------------------------- | --------------------------------------------- |
-| `ApiKey`               | —                                  | Your LicenseSeat API key **(required)**       |
-| `ProductSlug`          | —                                  | Your product identifier **(required)**        |
+| `ApiKey`               | --                                 | Your LicenseSeat API key **(required)**       |
+| `ProductSlug`          | --                                 | Your product identifier **(required)**        |
 | `ApiBaseUrl`           | `https://licenseseat.com/api/v1`   | API endpoint                                  |
 | `AutoValidateInterval` | 1 hour                             | Background validation interval (0 = disabled) |
+| `HeartbeatInterval`    | 5 minutes                          | Background heartbeat interval (0 = disabled)  |
+| `TelemetryEnabled`     | `true`                             | Send device telemetry with API requests       |
+| `AppVersion`           | auto-detected                      | Your app version for telemetry                |
+| `AppBuild`             | auto-detected                      | Your app build identifier for telemetry       |
 | `MaxRetries`           | 3                                  | Retry attempts for failed requests            |
 | `RetryDelay`           | 1 second                           | Base delay between retries                    |
 | `OfflineFallbackMode`  | `Disabled`                         | Offline validation mode                       |
@@ -360,11 +373,14 @@ Full Unity docs: [src/LicenseSeat.Unity/README.md](src/LicenseSeat.Unity/README.
 | `ActivateAsync(licenseKey)` | Activate a license on this device |
 | `ValidateAsync(licenseKey)` | Validate a license (check if valid) |
 | `DeactivateAsync()` | Deactivate the current license |
+| `HeartbeatAsync()` | Send a heartbeat for the active license |
 | `HasEntitlement(key)` | Check if an entitlement is active |
 | `CheckEntitlement(key)` | Get detailed entitlement status |
 | `GetStatus()` | Get current license status |
 | `GetCurrentLicense()` | Get the cached license |
 | `TestAuthAsync()` | Test API connectivity |
+
+All async methods also have synchronous wrappers (`Activate`, `Validate`, `Deactivate`, `Heartbeat`, `TestAuth`) for environments that don't support async.
 
 ### ValidationResult Properties
 
@@ -420,6 +436,102 @@ Common error codes:
 - `seat_limit_exceeded` - All seats are in use
 - `device_not_activated` - Device not activated for this license
 - `invalid_api_key` - Invalid API key
+
+## Heartbeat
+
+The SDK sends periodic heartbeat pings to let the server know the device is still active. This powers the "last seen" tracking in your LicenseSeat dashboard.
+
+**Automatic heartbeat** starts after activation and runs on a background timer (default: every 5 minutes). A heartbeat is also sent after each auto-validation cycle.
+
+```csharp
+var client = new LicenseSeatClient(new LicenseSeatClientOptions
+{
+    ApiKey = "your-api-key",
+    ProductSlug = "your-product",
+    HeartbeatInterval = TimeSpan.FromMinutes(5) // default
+});
+```
+
+**Disable the auto-heartbeat timer** by setting the interval to zero. Heartbeats will still be sent after each auto-validation cycle:
+
+```csharp
+options.HeartbeatInterval = TimeSpan.Zero;
+```
+
+**Send a heartbeat manually** at any time:
+
+```csharp
+// Async
+await client.HeartbeatAsync();
+
+// Sync
+client.Heartbeat();
+
+// Static API
+await LicenseSeat.LicenseSeat.Heartbeat();
+```
+
+**Listen for heartbeat events:**
+
+```csharp
+client.Events.On(LicenseSeatEvents.HeartbeatSuccess, _ =>
+    Console.WriteLine("Heartbeat acknowledged"));
+
+client.Events.On(LicenseSeatEvents.HeartbeatError, _ =>
+    Console.WriteLine("Heartbeat failed"));
+```
+
+## Telemetry & Privacy
+
+The SDK collects device telemetry and sends it with API requests to help you understand your user base. The following data is collected:
+
+| Field             | Example                        | Description                              |
+| ----------------- | ------------------------------ | ---------------------------------------- |
+| `sdk_name`        | `csharp`                       | SDK identifier (always "csharp")         |
+| `sdk_version`     | `0.4.0`                        | SDK version                              |
+| `os_name`         | `Windows`                      | Operating system (Windows, macOS, Linux) |
+| `os_version`      | `10.0.22631.0`                 | Operating system version                 |
+| `platform`        | `native`                       | Runtime platform (`native` or `unity`)   |
+| `device_type`     | `desktop`                      | Device type (desktop, server, mobile)    |
+| `device_model`    | `DESKTOP-ABC123`               | Machine name (nullable)                  |
+| `architecture`    | `x64`                          | CPU architecture (x64, arm64, etc.)      |
+| `cpu_cores`       | `8`                            | Number of processor cores                |
+| `memory_gb`       | `16`                           | Total system memory in GB                |
+| `locale`          | `en-US`                        | Current culture                          |
+| `language`        | `en`                           | Two-letter ISO language code             |
+| `timezone`        | `America/New_York`             | IANA timezone identifier                 |
+| `runtime_version` | `.NET 8.0.0`                   | .NET runtime description                 |
+| `app_version`     | `1.2.0`                        | Your app version (nullable)              |
+| `app_build`       | `42`                           | Your app build (nullable)                |
+
+Nullable fields are omitted from the payload when not available. No personal data, IP addresses, or usage analytics are collected by the SDK itself.
+
+**Set your app version** so you can track which versions your users are running:
+
+```csharp
+var client = new LicenseSeatClient(new LicenseSeatClientOptions
+{
+    ApiKey = "your-api-key",
+    ProductSlug = "your-product",
+    AppVersion = "1.2.0",
+    AppBuild = "42"
+});
+```
+
+If not set, `AppVersion` and `AppBuild` are auto-detected from the entry assembly metadata.
+
+**To disable telemetry** (e.g., for GDPR compliance):
+
+```csharp
+var client = new LicenseSeatClient(new LicenseSeatClientOptions
+{
+    ApiKey = "your-api-key",
+    ProductSlug = "your-product",
+    TelemetryEnabled = false
+});
+```
+
+When telemetry is disabled, no device information is sent with API requests. License activation, validation, and heartbeat continue to work normally.
 
 ## Documentation
 

@@ -101,6 +101,13 @@ public static class LicenseSeatEvents
     /// <summary>Fired when auth test fails.</summary>
     public const string AuthTestError = "auth_test:error";
 
+    // Heartbeat events
+    /// <summary>Fired when a heartbeat is sent successfully.</summary>
+    public const string HeartbeatSuccess = "heartbeat:success";
+
+    /// <summary>Fired when a heartbeat fails.</summary>
+    public const string HeartbeatError = "heartbeat:error";
+
     // SDK lifecycle events
     /// <summary>Fired when SDK is reset.</summary>
     public const string SdkReset = "sdk:reset";

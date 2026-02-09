@@ -185,6 +185,16 @@ public static class LicenseSeat
     }
 
     /// <summary>
+    /// Sends a heartbeat for the current active license using the shared instance.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <exception cref="InvalidOperationException">When Configure has not been called.</exception>
+    public static Task Heartbeat(CancellationToken cancellationToken = default)
+    {
+        return GetRequiredShared().HeartbeatAsync(cancellationToken);
+    }
+
+    /// <summary>
     /// Gets the current status using the shared instance.
     /// </summary>
     /// <returns>The current license status.</returns>

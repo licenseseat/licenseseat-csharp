@@ -103,6 +103,12 @@ public interface ILicenseSeatClient : IDisposable
     void PurgeCachedLicense();
 
     /// <summary>
+    /// Sends a heartbeat for the current active license.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    Task HeartbeatAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Tests authentication with the API.
     /// </summary>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -147,6 +153,15 @@ public interface ILicenseSeatClient : IDisposable
     /// For better performance and responsiveness, prefer the async version when possible.
     /// </remarks>
     void Deactivate();
+
+    /// <summary>
+    /// Sends a heartbeat for the current active license (synchronous version).
+    /// </summary>
+    /// <remarks>
+    /// This is a synchronous wrapper around <see cref="HeartbeatAsync"/>.
+    /// For better performance and responsiveness, prefer the async version when possible.
+    /// </remarks>
+    void Heartbeat();
 
     /// <summary>
     /// Tests authentication with the API (synchronous version).
