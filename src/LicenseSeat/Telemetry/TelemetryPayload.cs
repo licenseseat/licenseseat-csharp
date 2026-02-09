@@ -11,6 +11,7 @@ namespace LicenseSeat;
 /// </summary>
 internal sealed class TelemetryPayload
 {
+    public string SdkName { get; set; } = string.Empty;
     public string SdkVersion { get; set; } = string.Empty;
     public string OsName { get; set; } = string.Empty;
     public string OsVersion { get; set; } = string.Empty;
@@ -44,6 +45,7 @@ internal sealed class TelemetryPayload
     {
         return new TelemetryPayload
         {
+            SdkName = "csharp",
             SdkVersion = LicenseSeatClient.SdkVersion,
             OsName = GetOsName(),
             OsVersion = GetOsVersion(),
@@ -70,6 +72,7 @@ internal sealed class TelemetryPayload
     {
         var dict = new Dictionary<string, object>
         {
+            ["sdk_name"] = SdkName,
             ["sdk_version"] = SdkVersion,
             ["os_name"] = OsName,
             ["os_version"] = OsVersion,
