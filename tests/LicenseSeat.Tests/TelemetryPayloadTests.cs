@@ -28,6 +28,14 @@ public class TelemetryPayloadTests
     }
 
     [Fact]
+    public void Collect_SdkName_IsCsharp()
+    {
+        ResetUserOverrides();
+        var payload = TelemetryPayload.Collect();
+        Assert.Equal("csharp", payload.SdkName);
+    }
+
+    [Fact]
     public void Collect_SdkVersion_MatchesClientConstant()
     {
         ResetUserOverrides();
@@ -346,6 +354,8 @@ public class TelemetryPayloadTests
         var dict = payload.ToDictionary();
 
         // Required (always present) keys
+        Assert.True(dict.ContainsKey("sdk_name"));
+        Assert.Equal("csharp", dict["sdk_name"]);
         Assert.True(dict.ContainsKey("sdk_version"));
         Assert.True(dict.ContainsKey("os_name"));
         Assert.True(dict.ContainsKey("os_version"));
