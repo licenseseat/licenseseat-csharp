@@ -991,9 +991,23 @@ RunSyncTest("Crypto: Base64URL decoding handles padding correctly", () =>
 Console.WriteLine();
 
 // ============================================================
-// SECTION 7: User Journey Simulation
+// SECTION 7: Telemetry & Heartbeat Stress Test
 // ============================================================
-Console.WriteLine("--- Section 7: Real-World User Journey Simulation ---\n");
+Console.WriteLine("--- Section 7: Telemetry & Heartbeat Stress Test ---\n");
+
+await RunTest("Telemetry & Heartbeat: 7 scenarios", async () =>
+{
+    var telemetryPassed = await TelemetryStressTest.RunAsync();
+    if (!telemetryPassed)
+        throw new Exception("One or more telemetry scenarios failed (see details above)");
+});
+
+Console.WriteLine();
+
+// ============================================================
+// SECTION 8: User Journey Simulation
+// ============================================================
+Console.WriteLine("--- Section 8: Real-World User Journey Simulation ---\n");
 
 await RunTest("User Journey: Complete customer simulation", async () =>
 {
