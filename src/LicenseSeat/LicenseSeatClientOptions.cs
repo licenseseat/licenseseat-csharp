@@ -128,6 +128,13 @@ public sealed class LicenseSeatClientOptions
     public bool AutoInitialize { get; set; } = true;
 
     /// <summary>
+    /// Gets or sets whether to include device telemetry with API requests.
+    /// Set to false to disable telemetry (e.g., for GDPR compliance).
+    /// Default: true.
+    /// </summary>
+    public bool TelemetryEnabled { get; set; } = true;
+
+    /// <summary>
     /// Gets or sets a custom device ID.
     /// If not set, a device ID will be automatically generated.
     /// </summary>
@@ -200,6 +207,7 @@ public sealed class LicenseSeatClientOptions
             MaxOfflineDays = MaxOfflineDays,
             MaxClockSkew = MaxClockSkew,
             AutoInitialize = AutoInitialize,
+            TelemetryEnabled = TelemetryEnabled,
             DeviceId = DeviceId,
             HttpTimeout = HttpTimeout,
             HttpClientAdapter = HttpClientAdapter

@@ -421,6 +421,35 @@ Common error codes:
 - `device_not_activated` - Device not activated for this license
 - `invalid_api_key` - Invalid API key
 
+## Telemetry & Privacy
+
+The SDK collects basic device telemetry and sends it with API requests to help you understand your user base. The following data is collected:
+
+| Field          | Example                | Description                          |
+| -------------- | ---------------------- | ------------------------------------ |
+| `sdk_version`  | `0.4.0`                | SDK version                          |
+| `os_name`      | `Windows`              | Operating system name                |
+| `os_version`   | `10.0.22631.0`         | Operating system version             |
+| `platform`     | `Windows`              | Runtime platform                     |
+| `device_model` | `DESKTOP-ABC123`       | Machine name (nullable)              |
+| `locale`       | `en-US`                | Current culture                      |
+| `timezone`     | `America/New_York`     | Local timezone                       |
+| `app_version`  | `1.2.0`                | Your app version (if set, nullable)  |
+| `app_build`    | `42`                   | Your app build (if set, nullable)    |
+
+No personal data, IP addresses, or usage analytics are collected by the SDK itself.
+
+**To disable telemetry** (e.g., for GDPR compliance):
+
+```csharp
+var client = new LicenseSeatClient(new LicenseSeatClientOptions
+{
+    ApiKey = "your-api-key",
+    ProductSlug = "your-product",
+    TelemetryEnabled = false
+});
+```
+
 ## Documentation
 
 Full API documentation: [licenseseat.com/docs](https://licenseseat.com/docs)

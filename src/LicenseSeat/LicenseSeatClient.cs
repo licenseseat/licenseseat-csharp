@@ -25,6 +25,11 @@ namespace LicenseSeat;
 /// </example>
 public sealed class LicenseSeatClient : ILicenseSeatClient
 {
+    /// <summary>
+    /// The current SDK version.
+    /// </summary>
+    public const string SdkVersion = "0.4.0";
+
     private readonly LicenseSeatClientOptions _options;
     private readonly ApiClient _apiClient;
     private readonly LicenseCache _cache;
@@ -531,6 +536,40 @@ public sealed class LicenseSeatClient : ILicenseSeatClient
         }
     }
 
+    /// <summary>
+    /// Sends a heartbeat for the current active license.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    public async Task HeartbeatAsync(CancellationToken cancellationToken = default)
+    {
+        var license = _cache.GetLicense();
+        if (license == null)
+        {
+            Log("No active license for heartbeat");
+            return;
+        }
+
+        var deviceId = _cache.GetDeviceId() ?? _options.DeviceId ?? DeviceIdentifier.Generate();
+        var request = new HeartbeatRequest { DeviceId = deviceId };
+
+        try
+        {
+            await _apiClient.PostAsync<HeartbeatRequest, HeartbeatResponse>(
+                $"/products/{_options.ProductSlug}/licenses/{license.Key}/heartbeat",
+                request,
+                cancellationToken
+            ).ConfigureAwait(false);
+
+            _eventBus.Emit(LicenseSeatEvents.HeartbeatSuccess);
+            Log("Heartbeat sent successfully");
+        }
+        catch (Exception ex)
+        {
+            _eventBus.Emit(LicenseSeatEvents.HeartbeatError, new { Error = ex });
+            throw;
+        }
+    }
+
     // ============================================================
     // Auto-Validation
     // ============================================================
@@ -586,6 +625,16 @@ public sealed class LicenseSeatClient : ILicenseSeatClient
         {
             Log($"Auto-validation failed: {ex.Message}");
             _eventBus.Emit(LicenseSeatEvents.ValidationAutoFailed, new { LicenseKey = licenseKey, Error = ex });
+        }
+
+        // Fire-and-forget heartbeat after validation
+        try
+        {
+            await HeartbeatAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            Log($"Heartbeat failed: {ex.Message}");
         }
 
         _eventBus.Emit(LicenseSeatEvents.AutoValidationCycle, new
@@ -938,6 +987,12 @@ public sealed class LicenseSeatClient : ILicenseSeatClient
     public void Deactivate()
     {
         RunSync(() => DeactivateAsync(CancellationToken.None));
+    }
+
+    /// <inheritdoc/>
+    public void Heartbeat()
+    {
+        RunSync(() => HeartbeatAsync(CancellationToken.None));
     }
 
     /// <inheritdoc/>

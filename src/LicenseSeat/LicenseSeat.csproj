@@ -6,7 +6,7 @@
 
     <!-- NuGet Package Metadata -->
     <PackageId>LicenseSeat</PackageId>
-    <Version>0.3.0</Version>
+    <Version>0.4.0</Version>
     <Authors>LicenseSeat</Authors>
     <Description>Official C# SDK for the LicenseSeat API</Description>
     <PackageTags>licenseseat;sdk;api;licensing</PackageTags>
