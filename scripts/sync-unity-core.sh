@@ -38,6 +38,7 @@ DIRS=(
     "Exceptions"
     "Http"
     "Models"
+    "Telemetry"
     "Utilities"
 )
 

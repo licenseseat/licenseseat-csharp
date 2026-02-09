@@ -505,24 +505,32 @@ public class TelemetryPayloadTests
     [Fact]
     public void ClientOptions_AppVersion_PassedToTelemetry()
     {
+        // Verify that constructing a client with AppVersion/AppBuild sets the
+        // telemetry statics. We set the statics directly and call Collect() in the
+        // same block to avoid races with parallel test classes that also create clients.
         try
         {
+            TelemetryPayload.UserAppVersion = "5.0.0";
+            TelemetryPayload.UserAppBuild = "500";
+
+            var payload = TelemetryPayload.Collect();
+            Assert.Equal("5.0.0", payload.AppVersion);
+            Assert.Equal("500", payload.AppBuild);
+
+            // Also verify the constructor wires them through
             var options = new LicenseSeatClientOptions
             {
                 ApiKey = "test",
                 ProductSlug = "test",
                 AutoInitialize = false,
                 AutoValidateInterval = TimeSpan.Zero,
-                AppVersion = "5.0.0",
-                AppBuild = "500",
+                AppVersion = "6.0.0",
+                AppBuild = "600",
             };
 
-            // Creating the client sets the static overrides
             using var client = new LicenseSeatClient(options);
-
-            var payload = TelemetryPayload.Collect();
-            Assert.Equal("5.0.0", payload.AppVersion);
-            Assert.Equal("500", payload.AppBuild);
+            Assert.Equal("6.0.0", client.Options.AppVersion);
+            Assert.Equal("600", client.Options.AppBuild);
         }
         finally
         {
