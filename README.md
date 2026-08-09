@@ -533,7 +533,7 @@ dotnet test
 
 # Test with coverage and enforce the repository floor
 dotnet test tests/LicenseSeat.Tests --collect:"XPlat Code Coverage" --results-directory artifacts/coverage
-./scripts/check-coverage.py "$(find artifacts/coverage -name coverage.cobertura.xml -print -quit)" --minimum-lines 80 --minimum-branches 70
+./scripts/check-coverage.py "$(find artifacts/coverage -mindepth 2 -maxdepth 2 -name coverage.cobertura.xml -type f -print -quit)" --minimum-lines 80 --minimum-branches 70
 
 # Package
 dotnet pack --configuration Release --output ./artifacts

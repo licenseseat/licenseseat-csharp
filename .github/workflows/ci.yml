@@ -186,7 +186,7 @@ jobs:
       - name: Enforce coverage floor
         shell: bash
         run: |
-          mapfile -t reports < <(find artifacts/coverage -name coverage.cobertura.xml -type f)
+          mapfile -t reports < <(find artifacts/coverage -mindepth 2 -maxdepth 2 -name coverage.cobertura.xml -type f)
           if [ "${#reports[@]}" -ne 1 ]; then
             echo "::error::Expected exactly one Cobertura report; found ${#reports[@]}"
             exit 1
