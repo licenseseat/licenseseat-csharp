@@ -81,10 +81,10 @@ public static class TelemetryStressTest
         {
             try
             {
-                var body = JsonSerializer.Serialize(new { device_id = deviceId });
+                var body = JsonSerializer.Serialize(new { license_key = LICENSE_KEY, fingerprint = deviceId });
                 var content = new StringContent(body, Encoding.UTF8, "application/json");
                 var response = await httpClient.PostAsync(
-                    $"{API_URL}/products/{PRODUCT_SLUG}/licenses/{LICENSE_KEY}/validate",
+                    $"{API_URL.TrimEnd('/')}/products/{Uri.EscapeDataString(PRODUCT_SLUG)}/licenses/validate",
                     content);
                 if (response.IsSuccessStatusCode)
                 {
@@ -131,10 +131,10 @@ public static class TelemetryStressTest
         {
             try
             {
-                var body = JsonSerializer.Serialize(new { device_id = deviceId });
+                var body = JsonSerializer.Serialize(new { license_key = LICENSE_KEY, fingerprint = deviceId });
                 var content = new StringContent(body, Encoding.UTF8, "application/json");
                 var response = await httpClient.PostAsync(
-                    $"{API_URL}/products/{PRODUCT_SLUG}/licenses/{LICENSE_KEY}/deactivate",
+                    $"{API_URL.TrimEnd('/')}/products/{Uri.EscapeDataString(PRODUCT_SLUG)}/licenses/deactivate",
                     content);
                 if (response.IsSuccessStatusCode)
                 {
@@ -178,7 +178,7 @@ public static class TelemetryStressTest
             {
                 PrintTest("Activate license", true);
                 Log($"  device_id: {license.DeviceId}");
-                Log($"  key:       {license.Key}");
+                Log("  license:   activated (key redacted)");
             }
             else
             {
@@ -187,7 +187,7 @@ public static class TelemetryStressTest
         }
         catch (Exception ex)
         {
-            PrintTest("Activate license", false, ex.Message);
+            PrintTest("Activate license", false, DescribeError(ex));
         }
 
         // Store client for scenario 2/3 -- keep alive across scenarios
@@ -224,7 +224,7 @@ public static class TelemetryStressTest
         }
         catch (Exception ex)
         {
-            PrintTest("Validate license", false, ex.Message);
+            PrintTest("Validate license", false, DescribeError(ex));
         }
     }
 
@@ -261,7 +261,7 @@ public static class TelemetryStressTest
         }
         catch (Exception ex)
         {
-            PrintTest("1 initial heartbeat", false, ex.Message);
+            PrintTest("1 initial heartbeat", false, DescribeError(ex));
         }
 
         // 5 rapid heartbeats in sequence
@@ -275,7 +275,7 @@ public static class TelemetryStressTest
             }
             catch (Exception ex)
             {
-                Log($"  rapid heartbeat {i + 1} failed: {ex.Message}");
+                Log($"  rapid heartbeat {i + 1} failed: {DescribeError(ex)}");
             }
         }
         PrintTest($"5 rapid heartbeats ({rapidSuccess}/5 succeeded)", rapidSuccess == 5,
@@ -293,7 +293,7 @@ public static class TelemetryStressTest
             }
             catch (Exception ex)
             {
-                Log($"  spaced heartbeat {i + 1} failed: {ex.Message}");
+                Log($"  spaced heartbeat {i + 1} failed: {DescribeError(ex)}");
             }
         }
         PrintTest($"3 spaced heartbeats ({spacedSuccess}/3 succeeded)", spacedSuccess == 3,
@@ -317,7 +317,7 @@ public static class TelemetryStressTest
             }
             catch (Exception ex)
             {
-                Log($"  Deactivation warning: {ex.Message}");
+                Log($"  Deactivation warning: {DescribeError(ex)}");
                 // Force deactivation via API as fallback
                 await ForceDeactivate();
             }
@@ -355,7 +355,7 @@ public static class TelemetryStressTest
             }
             catch (Exception ex)
             {
-                PrintTest("Heartbeat (telemetry disabled)", false, ex.Message);
+                PrintTest("Heartbeat (telemetry disabled)", false, DescribeError(ex));
             }
 
             // Deactivate
@@ -364,7 +364,7 @@ public static class TelemetryStressTest
         }
         catch (Exception ex)
         {
-            PrintTest("Telemetry disabled flow", false, ex.Message);
+            PrintTest("Telemetry disabled flow", false, DescribeError(ex));
             // Make sure seat is freed for next scenario
             await ForceDeactivate();
         }
@@ -428,7 +428,7 @@ public static class TelemetryStressTest
         }
         catch (Exception ex)
         {
-            PrintTest("Auto-validation cycles", false, ex.Message);
+            PrintTest("Auto-validation cycles", false, DescribeError(ex));
             await ForceDeactivate();
         }
         finally
@@ -496,7 +496,7 @@ public static class TelemetryStressTest
         }
         catch (Exception ex)
         {
-            PrintTest("Concurrent stress", false, ex.Message);
+            PrintTest("Concurrent stress", false, DescribeError(ex));
             await ForceDeactivate();
         }
         finally
@@ -551,7 +551,7 @@ public static class TelemetryStressTest
             }
             catch (Exception ex)
             {
-                PrintTest("Step 3: HeartbeatAsync", false, ex.Message);
+                PrintTest("Step 3: HeartbeatAsync", false, DescribeError(ex));
             }
 
             // Step 4: Deactivate
@@ -581,7 +581,7 @@ public static class TelemetryStressTest
         }
         catch (Exception ex)
         {
-            PrintTest("Full lifecycle", false, ex.Message);
+            PrintTest("Full lifecycle", false, DescribeError(ex));
             await ForceDeactivate();
         }
         finally
@@ -685,7 +685,7 @@ public static class TelemetryStressTest
             }
             catch (Exception ex)
             {
-                PrintTest("Server accepts enriched telemetry (heartbeat)", false, ex.Message);
+                PrintTest("Server accepts enriched telemetry (heartbeat)", false, DescribeError(ex));
             }
 
             // Deactivate
@@ -700,7 +700,7 @@ public static class TelemetryStressTest
         }
         catch (Exception ex)
         {
-            PrintTest("Enriched telemetry server test", false, ex.Message);
+            PrintTest("Enriched telemetry server test", false, DescribeError(ex));
             await ForceDeactivate();
         }
         finally
@@ -795,7 +795,7 @@ public static class TelemetryStressTest
         }
         catch (Exception ex)
         {
-            PrintTest("Separate heartbeat timer", false, ex.Message);
+            PrintTest("Separate heartbeat timer", false, DescribeError(ex));
             await ForceDeactivate();
         }
         finally
@@ -861,7 +861,7 @@ public static class TelemetryStressTest
             }
             catch (Exception ex)
             {
-                PrintTest("Manual HeartbeatAsync still works", false, ex.Message);
+                PrintTest("Manual HeartbeatAsync still works", false, DescribeError(ex));
             }
 
             // Deactivate
@@ -877,7 +877,7 @@ public static class TelemetryStressTest
         }
         catch (Exception ex)
         {
-            PrintTest("Heartbeat timer disabled", false, ex.Message);
+            PrintTest("Heartbeat timer disabled", false, DescribeError(ex));
             await ForceDeactivate();
         }
         finally
@@ -924,10 +924,10 @@ public static class TelemetryStressTest
             // Discover active device_id via validate
             try
             {
-                var valBody = JsonSerializer.Serialize(new { device_id = deviceIds[0] });
+                var valBody = JsonSerializer.Serialize(new { license_key = LICENSE_KEY, fingerprint = deviceIds[0] });
                 var valContent = new StringContent(valBody, Encoding.UTF8, "application/json");
                 var valResponse = await httpClient.PostAsync(
-                    $"{API_URL}/products/{PRODUCT_SLUG}/licenses/{LICENSE_KEY}/validate",
+                    $"{API_URL.TrimEnd('/')}/products/{Uri.EscapeDataString(PRODUCT_SLUG)}/licenses/validate",
                     valContent);
                 if (valResponse.IsSuccessStatusCode)
                 {
@@ -950,10 +950,10 @@ public static class TelemetryStressTest
             {
                 try
                 {
-                    var body = JsonSerializer.Serialize(new { device_id = deviceId });
+                    var body = JsonSerializer.Serialize(new { license_key = LICENSE_KEY, fingerprint = deviceId });
                     var content = new StringContent(body, Encoding.UTF8, "application/json");
                     var response = await httpClient.PostAsync(
-                        $"{API_URL}/products/{PRODUCT_SLUG}/licenses/{LICENSE_KEY}/deactivate",
+                        $"{API_URL.TrimEnd('/')}/products/{Uri.EscapeDataString(PRODUCT_SLUG)}/licenses/deactivate",
                         content);
                     if (response.IsSuccessStatusCode) break;
                 }
@@ -1024,10 +1024,17 @@ public static class TelemetryStressTest
         Console.WriteLine("======================================================================");
         Console.WriteLine($"  API URL:     {API_URL}");
         Console.WriteLine($"  Product:     {PRODUCT_SLUG}");
-        Console.WriteLine($"  License:     {LICENSE_KEY}");
+        Console.WriteLine("  License:     configured (redacted)");
         Console.WriteLine($"  SDK Version: {LicenseSeatClient.SdkVersion}");
         Console.WriteLine("======================================================================");
         Console.WriteLine();
+    }
+
+    private static string DescribeError(Exception error)
+    {
+        return error is ApiException apiError
+            ? $"API request failed (status {apiError.StatusCode}, code {apiError.Code ?? "unknown"})"
+            : error.GetType().Name;
     }
 
     private static void PrintHeader(string title)

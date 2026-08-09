@@ -6,14 +6,16 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to release (e.g., 1.0.0)'
+        description: Version to release (for example, 1.0.0)
         required: true
         type: string
-      prerelease:
-        description: 'Is this a prerelease?'
-        required: false
-        type: boolean
-        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event.release.tag_name || inputs.version || github.run_id }}
+  cancel-in-progress: false
 
 env:
   DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
@@ -21,194 +23,212 @@ env:
   DOTNET_NOLOGO: true
 
 jobs:
-  # ============================================================
-  # Validate Release
-  # ============================================================
   validate:
-    name: Validate Release
+    name: Validate release identity
     runs-on: ubuntu-latest
-
     outputs:
       version: ${{ steps.version.outputs.version }}
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
+      - name: Checkout immutable release source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
 
-      - name: Determine version
+      - name: Validate version and source metadata
         id: version
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          REQUESTED_VERSION: ${{ inputs.version }}
         run: |
-          if [ "${{ github.event_name }}" == "release" ]; then
-            VERSION="${{ github.event.release.tag_name }}"
-            # Remove 'v' prefix if present
-            VERSION="${VERSION#v}"
+          if [ "$EVENT_NAME" = release ]; then
+            version=${RELEASE_TAG#v}
           else
-            VERSION="${{ github.event.inputs.version }}"
+            version=$REQUESTED_VERSION
           fi
-          echo "version=${VERSION}" >> $GITHUB_OUTPUT
-          echo "Releasing version: ${VERSION}"
 
-      - name: Validate version format
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
-            echo "::error::Invalid version format: ${VERSION}"
-            echo "Expected format: X.Y.Z or X.Y.Z-prerelease"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$ ]]; then
+            echo "::error::Invalid semantic version"
             exit 1
           fi
-          echo "✓ Version format is valid"
 
-  # ============================================================
-  # Build and Test
-  # ============================================================
+          project_version=$(sed -n 's:.*<Version>\([^<]*\)</Version>.*:\1:p' src/LicenseSeat/LicenseSeat.csproj | head -1)
+          unity_version=$(python3 -c 'import json; print(json.load(open("src/LicenseSeat.Unity/package.json", encoding="utf-8"))["version"])')
+          if [ "$version" != "$project_version" ] || [ "$version" != "$unity_version" ]; then
+            echo "::error::Release, SDK, and Unity package versions must match"
+            exit 1
+          fi
+          if ! grep -Fq "## [$version]" src/LicenseSeat.Unity/CHANGELOG.md; then
+            echo "::error::Unity changelog has no entry for the release version"
+            exit 1
+          fi
+
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+
   build:
-    name: Build and Test
+    name: Build, test, and package once
     runs-on: ubuntu-latest
     needs: validate
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
+      - name: Checkout validated source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
-          dotnet-version: '9.0.x'
+          dotnet-version: |
+            9.0.316
+            10.0.302
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
 
-      - name: Restore dependencies
-        run: dotnet restore
+      - name: Restore locked dependencies
+        run: dotnet restore LicenseSeat.sln --locked-mode
 
-      - name: Build
-        run: dotnet build --configuration Release --no-restore
+      - name: Build all maintained projects
+        run: dotnet build LicenseSeat.sln --configuration Release --no-restore
 
-      - name: Test
-        run: dotnet test --configuration Release --no-build --verbosity normal
+      - name: Validate Unity package and compile compatibility harness
+        run: |
+          ./scripts/validate-unity-sync.sh
+          ./scripts/validate-unity-package.sh
+          dotnet build tests/LicenseSeat.Unity.Compile/LicenseSeat.Unity.Compile.csproj --configuration Release --no-restore
 
-  # ============================================================
-  # Create and Publish Package
-  # ============================================================
+      - name: Test with coverage
+        run: >-
+          dotnet test tests/LicenseSeat.Tests/LicenseSeat.Tests.csproj
+          --configuration Release
+          --no-build
+          --collect:"XPlat Code Coverage"
+          --results-directory artifacts/coverage
+          --logger "trx;LogFileName=release-tests.trx"
+
+      - name: Enforce coverage floor
+        shell: bash
+        run: |
+          mapfile -t reports < <(find artifacts/coverage -name coverage.cobertura.xml -type f)
+          if [ "${#reports[@]}" -ne 1 ]; then
+            echo "::error::Expected exactly one Cobertura report; found ${#reports[@]}"
+            exit 1
+          fi
+          ./scripts/check-coverage.py "${reports[0]}" --minimum-lines 80 --minimum-branches 70
+
+      - name: Create release package with SDK validation enabled
+        env:
+          RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+        run: >-
+          dotnet pack src/LicenseSeat/LicenseSeat.csproj
+          --configuration Release
+          --no-build
+          --output artifacts/packages
+          -p:PackageVersion="$RELEASE_VERSION"
+          -p:Version="$RELEASE_VERSION"
+
+      - name: Validate exact release package
+        env:
+          RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+        run: >-
+          ./scripts/validate-nuget-package.py
+          "artifacts/packages/LicenseSeat.${RELEASE_VERSION}.nupkg"
+          --version "$RELEASE_VERSION"
+
+      - name: Upload validated release package
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: nuget-release-${{ needs.validate.outputs.version }}
+          path: |
+            artifacts/packages/LicenseSeat.${{ needs.validate.outputs.version }}.nupkg
+            artifacts/packages/LicenseSeat.${{ needs.validate.outputs.version }}.snupkg
+          if-no-files-found: error
+          retention-days: 90
+
   publish:
-    name: Publish to NuGet
+    name: Publish validated package to NuGet
     runs-on: ubuntu-latest
     needs: [validate, build]
     environment: nuget-publish
-
-    # Required for NuGet Trusted Publishing (OIDC)
     permissions:
       id-token: write
       contents: read
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
+      - name: Checkout validation script
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
-          dotnet-version: '9.0.x'
+          dotnet-version: 10.0.302
 
-      - name: Restore dependencies
-        run: dotnet restore
+      - name: Download validated package artifact
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: nuget-release-${{ needs.validate.outputs.version }}
+          path: artifacts/packages
 
-      - name: Build
-        run: dotnet build --configuration Release --no-restore
+      - name: Revalidate downloaded artifact
+        env:
+          RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+        run: >-
+          ./scripts/validate-nuget-package.py
+          "artifacts/packages/LicenseSeat.${RELEASE_VERSION}.nupkg"
+          --version "$RELEASE_VERSION"
 
-      - name: Create NuGet package
-        run: |
-          VERSION="${{ needs.validate.outputs.version }}"
-          dotnet pack src/LicenseSeat/LicenseSeat.csproj \
-            --configuration Release \
-            --no-build \
-            --output ./packages \
-            /p:PackageVersion=${VERSION} \
-            /p:Version=${VERSION}
-
-      - name: Verify package
-        run: |
-          ls -la ./packages/
-          dotnet nuget verify ./packages/*.nupkg --all || true
-
-      # Obtain temporary API key via OIDC (Trusted Publishing)
-      - name: NuGet Login (Trusted Publishing)
+      - name: NuGet trusted-publishing login
         id: nuget-login
-        uses: nuget/login@v1
+        uses: nuget/login@8d196754b4036150537f80ac539e15c2f1028841 # v1
         with:
           user: ${{ vars.NUGET_USER }}
 
-      - name: Push to NuGet.org
-        run: |
-          dotnet nuget push ./packages/*.nupkg \
-            --api-key ${{ steps.nuget-login.outputs.NUGET_API_KEY }} \
-            --source https://api.nuget.org/v3/index.json \
-            --skip-duplicate
+      - name: Push exact package to NuGet.org
+        env:
+          NUGET_API_KEY: ${{ steps.nuget-login.outputs.NUGET_API_KEY }}
+          RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+        run: >-
+          dotnet nuget push
+          "artifacts/packages/LicenseSeat.${RELEASE_VERSION}.nupkg"
+          --api-key "$NUGET_API_KEY"
+          --source https://api.nuget.org/v3/index.json
 
-      - name: Upload package artifact
-        uses: actions/upload-artifact@v6
-        with:
-          name: nuget-package-${{ needs.validate.outputs.version }}
-          path: ./packages/*.nupkg
-          retention-days: 90
-
-  # ============================================================
-  # Create GitHub Release Assets
-  # ============================================================
   release-assets:
-    name: Upload Release Assets
+    name: Attach validated artifacts to GitHub release
     runs-on: ubuntu-latest
-    needs: [validate, publish]
+    needs: [validate, build, publish]
     if: github.event_name == 'release'
+    permissions:
+      contents: write
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+      - name: Download validated package artifact
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
-          dotnet-version: '9.0.x'
+          name: nuget-release-${{ needs.validate.outputs.version }}
+          path: artifacts/packages
 
-      - name: Restore dependencies
-        run: dotnet restore
-
-      - name: Build Release
-        run: dotnet build --configuration Release
-
-      - name: Create NuGet package
-        run: |
-          VERSION="${{ needs.validate.outputs.version }}"
-          dotnet pack src/LicenseSeat/LicenseSeat.csproj \
-            --configuration Release \
-            --no-build \
-            --output ./packages \
-            /p:PackageVersion=${VERSION}
-
-      - name: Upload to Release
-        uses: softprops/action-gh-release@v2
+      - name: Upload exact release assets
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
+          fail_on_unmatched_files: true
           files: |
-            ./packages/*.nupkg
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            artifacts/packages/LicenseSeat.${{ needs.validate.outputs.version }}.nupkg
+            artifacts/packages/LicenseSeat.${{ needs.validate.outputs.version }}.snupkg
 
-  # ============================================================
-  # Post-Release Notifications
-  # ============================================================
   notify:
-    name: Post-Release
+    name: Release summary
     runs-on: ubuntu-latest
     needs: [validate, publish]
     if: success()
 
     steps:
-      - name: Summary
+      - name: Write summary
+        env:
+          RELEASE_VERSION: ${{ needs.validate.outputs.version }}
         run: |
-          echo "## 🎉 Release Published Successfully" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Version:** ${{ needs.validate.outputs.version }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**NuGet Package:** [LicenseSeat](https://www.nuget.org/packages/LicenseSeat/${{ needs.validate.outputs.version }})" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Installation" >> $GITHUB_STEP_SUMMARY
-          echo '```bash' >> $GITHUB_STEP_SUMMARY
-          echo "dotnet add package LicenseSeat --version ${{ needs.validate.outputs.version }}" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## Release published"
+            echo
+            echo "NuGet package: LicenseSeat ${RELEASE_VERSION}"
+          } >> "$GITHUB_STEP_SUMMARY"

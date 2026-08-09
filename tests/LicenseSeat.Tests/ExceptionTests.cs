@@ -96,7 +96,7 @@ public class ExceptionTests
 
         [Theory]
         [InlineData(0, true)]
-        [InlineData(408, true)]
+        [InlineData(408, false)]
         [InlineData(404, false)]
         [InlineData(500, false)]
         public void IsNetworkError_ReturnsCorrectValue(int statusCode, bool expected)

@@ -21,15 +21,22 @@ Console.WriteLine("=".PadRight(70, '='));
 Console.WriteLine("  LicenseSeat C# SDK - Production Stress Test");
 Console.WriteLine("=".PadRight(70, '='));
 Console.WriteLine();
-Console.WriteLine($"  API Key:      {API_KEY[..20]}...");
+Console.WriteLine("  API Key:      configured");
 Console.WriteLine($"  Product:      {PRODUCT_SLUG}");
-Console.WriteLine($"  License Key:  {LICENSE_KEY}");
+Console.WriteLine("  License Key:  configured (redacted)");
 Console.WriteLine();
 Console.WriteLine("=".PadRight(70, '='));
 Console.WriteLine();
 
 var allTestsPassed = true;
 var testResults = new List<(string Name, bool Passed, TimeSpan Duration, string? Error)>();
+
+static string DescribeError(Exception error)
+{
+    return error is ApiException apiError
+        ? $"API request failed (status {apiError.StatusCode}, code {apiError.Code ?? "unknown"})"
+        : error.GetType().Name;
+}
 
 async Task RunTest(string name, Func<Task> test)
 {
@@ -50,8 +57,8 @@ async Task RunTest(string name, Func<Task> test)
         Console.ForegroundColor = ConsoleColor.Red;
         Console.WriteLine($"FAILED ({sw.ElapsedMilliseconds}ms)");
         Console.ResetColor();
-        Console.WriteLine($"       Error: {ex.Message}");
-        testResults.Add((name, false, sw.Elapsed, ex.Message));
+        Console.WriteLine($"       Error: {DescribeError(ex)}");
+        testResults.Add((name, false, sw.Elapsed, DescribeError(ex)));
         allTestsPassed = false;
     }
 }
@@ -75,8 +82,8 @@ void RunSyncTest(string name, Action test)
         Console.ForegroundColor = ConsoleColor.Red;
         Console.WriteLine($"FAILED ({sw.ElapsedMilliseconds}ms)");
         Console.ResetColor();
-        Console.WriteLine($"       Error: {ex.Message}");
-        testResults.Add((name, false, sw.Elapsed, ex.Message));
+        Console.WriteLine($"       Error: {DescribeError(ex)}");
+        testResults.Add((name, false, sw.Elapsed, DescribeError(ex)));
         allTestsPassed = false;
     }
 }
@@ -127,7 +134,7 @@ await RunTest("ValidateAsync - Validate license (no local state)", async () =>
 {
     var result = await client!.ValidateAsync(LICENSE_KEY);
     Console.WriteLine($"       Valid: {result.Valid}");
-    Console.WriteLine($"       License Key: {result.License?.Key ?? "N/A"}");
+    Console.WriteLine($"       License returned: {result.License != null}");
     Console.WriteLine($"       Device ID: {result.License?.DeviceId ?? "N/A"}");
     Console.WriteLine($"       Active Seats: {result.License?.ActiveSeats ?? 0}");
     Console.WriteLine($"       Seat Limit: {result.License?.SeatLimit ?? 0}");
@@ -160,7 +167,7 @@ await RunTest("ActivateAsync - Activate license", async () =>
         if (activatedLicense == null) throw new Exception("Activation returned null");
         if (string.IsNullOrEmpty(activatedLicense.Key)) throw new Exception("License key is empty");
 
-        Console.WriteLine($"       License Key: {activatedLicense.Key}");
+        Console.WriteLine("       License activated successfully");
         Console.WriteLine($"       Status: {activatedLicense.Status}");
         Console.WriteLine($"       Device ID: {activatedLicense.DeviceId}");
         if (activatedLicense.ExpiresAt.HasValue)
@@ -236,7 +243,7 @@ if (activatedLicense != null)
         var license = client!.GetCurrentLicense();
         if (license == null) throw new Exception("GetCurrentLicense returned null");
         if (license.Key != activatedLicense!.Key)
-            throw new Exception($"License key mismatch: expected {activatedLicense.Key}, got {license.Key}");
+            throw new Exception("Cached license key did not match the activated license key");
     });
 
     // Deactivate License
@@ -338,7 +345,7 @@ await RunTest("LicenseSeat.Activate - Static activation", async () =>
     try
     {
         staticActivatedLicense = await LicenseSeatStatic.Activate(LICENSE_KEY);
-        Console.WriteLine($"       Activated via static API: {staticActivatedLicense.Key}");
+        Console.WriteLine("       Activated via static API");
     }
     catch (ApiException ex) when (ex.Code == "seat_limit_exceeded")
     {
@@ -476,7 +483,7 @@ await RunTest("Error: Invalid license key - 404 Not Found", async () =>
     {
         Console.WriteLine($"       Caught ApiException as expected");
         Console.WriteLine($"       Code: {ex.Code}");
-        Console.WriteLine($"       Message: {ex.Message}");
+        Console.WriteLine($"       Error: {DescribeError(ex)}");
         Console.WriteLine($"       Status Code: {ex.StatusCode}");
 
         if (ex.StatusCode != 404)
@@ -497,7 +504,7 @@ RunSyncTest("Error: Static API before configure throws", () =>
     catch (InvalidOperationException ex)
     {
         Console.WriteLine($"       Caught InvalidOperationException as expected");
-        Console.WriteLine($"       Message: {ex.Message[..Math.Min(50, ex.Message.Length)]}...");
+        Console.WriteLine($"       Error: {DescribeError(ex)}");
     }
 });
 
@@ -625,9 +632,9 @@ RunSyncTest("Stress: Typed event handlers", () =>
     if (receivedLicense == null)
         throw new Exception("Typed event handler didn't receive license");
     if (receivedLicense.Key != "TEST-KEY")
-        throw new Exception($"License key mismatch: {receivedLicense.Key}");
+        throw new Exception("Event license key did not match the activated license key");
 
-    Console.WriteLine($"       Typed event handler received license: {receivedLicense.Key}");
+    Console.WriteLine("       Typed event handler received the expected license");
 });
 
 Console.WriteLine();
@@ -672,18 +679,17 @@ await RunTest("Offline: Fetch offline token from API", async () =>
     httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {API_KEY}");
     httpClient.DefaultRequestHeaders.Add("Accept", "application/json");
 
-    var requestBody = new { device_id = Environment.MachineName };
+    var requestBody = new { license_key = LICENSE_KEY, fingerprint = license?.DeviceId ?? Environment.MachineName };
     var json = System.Text.Json.JsonSerializer.Serialize(requestBody);
     var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
 
     var response = await httpClient.PostAsync(
-        $"https://licenseseat.com/api/v1/products/{PRODUCT_SLUG}/licenses/{LICENSE_KEY}/offline_token",
+        $"{API_URL.TrimEnd('/')}/products/{Uri.EscapeDataString(PRODUCT_SLUG)}/licenses/offline-token",
         content);
 
     if (!response.IsSuccessStatusCode)
     {
-        var errorBody = await response.Content.ReadAsStringAsync();
-        throw new Exception($"Failed to fetch offline token: {response.StatusCode} - {errorBody}");
+        throw new Exception($"Failed to fetch offline token: {response.StatusCode}");
     }
 
     var responseBody = await response.Content.ReadAsStringAsync();
@@ -693,7 +699,7 @@ await RunTest("Offline: Fetch offline token from API", async () =>
         throw new Exception("Failed to deserialize offline token response");
 
     Console.WriteLine($"       Token fetched successfully");
-    Console.WriteLine($"       License Key: {offlineTokenResponse.Token?.LicenseKey}");
+    Console.WriteLine($"       License binding present: {!string.IsNullOrEmpty(offlineTokenResponse.Token?.LicenseKey)}");
     Console.WriteLine($"       Product Slug: {offlineTokenResponse.Token?.ProductSlug}");
     Console.WriteLine($"       Key ID: {offlineTokenResponse.Token?.Kid}");
 
@@ -774,12 +780,11 @@ await RunTest("Offline: Fetch public signing key from API", async () =>
     httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {API_KEY}");
     httpClient.DefaultRequestHeaders.Add("Accept", "application/json");
 
-    var response = await httpClient.GetAsync($"https://licenseseat.com/api/v1/signing_keys/{keyId}");
+    var response = await httpClient.GetAsync($"{API_URL.TrimEnd('/')}/signing_keys/{Uri.EscapeDataString(keyId)}");
 
     if (!response.IsSuccessStatusCode)
     {
-        var errorBody = await response.Content.ReadAsStringAsync();
-        throw new Exception($"Failed to fetch signing key: {response.StatusCode} - {errorBody}");
+        throw new Exception($"Failed to fetch signing key: {response.StatusCode}");
     }
 
     var responseBody = await response.Content.ReadAsStringAsync();

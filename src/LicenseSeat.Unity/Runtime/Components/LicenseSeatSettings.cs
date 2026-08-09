@@ -1,3 +1,4 @@
+#nullable enable
 #if UNITY_5_3_OR_NEWER
 using System;
 using UnityEngine;
@@ -12,17 +13,18 @@ namespace LicenseSeat.Unity
     public class LicenseSeatSettings : ScriptableObject
     {
         [Header("API Configuration")]
-        [Tooltip("Your LicenseSeat API key. Required for authenticated requests.")]
+        [Tooltip("Restricted client SDK key scoped to licenses:validate. Never use an administrator/server key in a player build.")]
         [SerializeField] private string apiKey = "";
 
-        [Tooltip("Your product identifier from the LicenseSeat dashboard.")]
+        [Tooltip("Your product slug from the LicenseSeat dashboard.")]
         [SerializeField] private string productId = "";
 
         [Tooltip("Base URL for the LicenseSeat API.")]
         [SerializeField] private string baseUrl = LicenseSeatClientOptions.DefaultApiBaseUrl;
 
         [Header("Validation Settings")]
-        [Tooltip("Automatically validate license when the game starts.")]
+        [Tooltip("Legacy serialized setting retained for asset compatibility. The memory-only cache has no license to validate after a restart.")]
+        [HideInInspector]
         [SerializeField] private bool validateOnStart = true;
 
         [Tooltip("Interval between automatic license validations (in seconds). Set to 0 to disable.")]
@@ -51,9 +53,19 @@ namespace LicenseSeat.Unity
         }
 
         /// <summary>
-        /// Gets or sets the product ID.
+        /// Gets or sets the product slug.
         /// </summary>
+        [Obsolete("Use ProductSlug. This alias remains for serialized-settings compatibility.")]
         public string ProductId
+        {
+            get => productId;
+            set => productId = value;
+        }
+
+        /// <summary>
+        /// Gets or sets the product slug used to scope every license request.
+        /// </summary>
+        public string ProductSlug
         {
             get => productId;
             set => productId = value;
@@ -69,7 +81,8 @@ namespace LicenseSeat.Unity
         }
 
         /// <summary>
-        /// Gets or sets whether to validate on start.
+        /// Gets or sets a legacy serialized value retained for asset compatibility.
+        /// The built-in memory-only cache cannot validate a prior license after restart.
         /// </summary>
         public bool ValidateOnStart
         {
@@ -116,26 +129,31 @@ namespace LicenseSeat.Unity
         /// <summary>
         /// Gets whether the settings are valid (has required configuration).
         /// </summary>
-        public bool IsValid => !string.IsNullOrWhiteSpace(apiKey) && !string.IsNullOrWhiteSpace(productId);
+        public bool IsValid
+        {
+            get
+            {
+                try
+                {
+                    CreateCoreOptions().Validate();
+                    return true;
+                }
+                catch (Exception)
+                {
+                    return false;
+                }
+            }
+        }
 
         /// <summary>
         /// Creates client options from these settings.
-        /// Note: ProductId is not part of client options. Use <see cref="CreateValidationOptions"/>
-        /// to get ValidationOptions with ProductSlug set for validation calls.
+        /// The product slug is fixed at client construction so every request is consistently scoped.
         /// </summary>
         /// <returns>Configured client options.</returns>
         public LicenseSeatClientOptions ToClientOptions()
         {
-            var options = new LicenseSeatClientOptions
-            {
-                ApiKey = apiKey,
-                ApiBaseUrl = string.IsNullOrWhiteSpace(baseUrl) ? LicenseSeatClientOptions.DefaultApiBaseUrl : baseUrl,
-                AutoValidateInterval = autoValidateInterval > 0 ? TimeSpan.FromSeconds(autoValidateInterval) : TimeSpan.Zero,
-                OfflineFallbackMode = offlineFallbackMode,
-                MaxOfflineDays = maxOfflineDays,
-                Debug = enableDebugLogging,
-                AutoInitialize = false // Let LicenseSeatManager control initialization
-            };
+            var options = CreateCoreOptions();
+            options.Validate();
 
             // Use UnityWebRequest adapter for cross-platform compatibility
             options.HttpClientAdapter = new UnityWebRequestAdapter(options);
@@ -144,16 +162,56 @@ namespace LicenseSeat.Unity
         }
 
         /// <summary>
-        /// Creates validation options with the configured product slug.
-        /// Use this when calling ValidateAsync to include the product identifier.
+        /// Creates validation options for compatibility with earlier SDK versions.
+        /// Product scope now comes from <see cref="LicenseSeatClientOptions.ProductSlug"/>.
         /// </summary>
-        /// <returns>ValidationOptions with ProductSlug set from ProductId.</returns>
+        /// <returns>Default validation options.</returns>
+        [Obsolete("Product scope is configured on LicenseSeatClientOptions. Construct ValidationOptions directly.")]
         public ValidationOptions CreateValidationOptions()
         {
-            return new ValidationOptions
+            return new ValidationOptions();
+        }
+
+        private LicenseSeatClientOptions CreateCoreOptions()
+        {
+            return new LicenseSeatClientOptions
             {
-                ProductSlug = productId
+                ApiKey = apiKey,
+                ProductSlug = productId,
+                ApiBaseUrl = string.IsNullOrWhiteSpace(baseUrl) ? LicenseSeatClientOptions.DefaultApiBaseUrl : baseUrl,
+                AutoValidateInterval = autoValidateInterval > 0 ? TimeSpan.FromSeconds(autoValidateInterval) : TimeSpan.Zero,
+                OfflineFallbackMode = offlineFallbackMode,
+                MaxOfflineDays = maxOfflineDays,
+                Debug = enableDebugLogging,
+                DeviceId = GetUnityDeviceId(),
+                AutoInitialize = false // Let LicenseSeatManager control initialization
             };
+        }
+
+        private static string? GetUnityDeviceId()
+        {
+            try
+            {
+                var unityIdentifier = SystemInfo.deviceUniqueIdentifier;
+                if (string.IsNullOrWhiteSpace(unityIdentifier) ||
+                    string.Equals(
+                        unityIdentifier,
+                        SystemInfo.unsupportedIdentifier,
+                        StringComparison.Ordinal) ||
+                    !SecurityValidation.IsSafeText(unityIdentifier, 8, 512))
+                {
+                    return null;
+                }
+
+                // Hash the platform identifier before sending it. This reduces
+                // unnecessary exposure while retaining deterministic binding.
+                return DeviceIdentifier.FromInput("unity:" + unityIdentifier);
+            }
+            catch (Exception)
+            {
+                // The core client has an in-process fallback for restricted platforms.
+                return null;
+            }
         }
 
         private void OnValidate()

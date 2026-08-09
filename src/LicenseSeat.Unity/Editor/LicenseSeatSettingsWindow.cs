@@ -1,4 +1,8 @@
+#nullable enable
 #if UNITY_EDITOR
+using System;
+using System.Threading;
+using System.Threading.Tasks;
 using UnityEngine;
 using UnityEditor;
 using LicenseSeat.Unity;
@@ -10,12 +14,13 @@ namespace LicenseSeat.Editor
     /// </summary>
     public class LicenseSeatSettingsWindow : EditorWindow
     {
-        private LicenseSeatSettings _settings;
-        private SerializedObject _serializedSettings;
+        private LicenseSeatSettings? _settings;
+        private SerializedObject? _serializedSettings;
         private Vector2 _scrollPosition;
         private string _testLicenseKey = "";
         private string _testResult = "";
         private bool _isTesting;
+        private CancellationTokenSource? _lifetimeCancellation;
 
         [MenuItem("Window/LicenseSeat/Settings")]
         public static void ShowWindow()
@@ -27,7 +32,16 @@ namespace LicenseSeat.Editor
 
         private void OnEnable()
         {
+            _lifetimeCancellation = new CancellationTokenSource();
             LoadSettings();
+        }
+
+        private void OnDisable()
+        {
+            _lifetimeCancellation?.Cancel();
+            _lifetimeCancellation?.Dispose();
+            _lifetimeCancellation = null;
+            _testLicenseKey = "";
         }
 
         private void LoadSettings()
@@ -100,24 +114,35 @@ namespace LicenseSeat.Editor
 
         private void DrawSettingsUI()
         {
+            if (_settings == null || _serializedSettings == null)
+            {
+                EditorGUILayout.HelpBox("Settings could not be loaded safely.", MessageType.Error);
+                return;
+            }
+
             EditorGUILayout.LabelField("Configuration", EditorStyles.boldLabel);
 
-            _serializedSettings?.Update();
+            _serializedSettings.Update();
 
             EditorGUI.BeginChangeCheck();
 
-            EditorGUILayout.PropertyField(_serializedSettings.FindProperty("_apiKey"));
-            EditorGUILayout.PropertyField(_serializedSettings.FindProperty("_apiBaseUrl"));
-            EditorGUILayout.PropertyField(_serializedSettings.FindProperty("_autoValidateIntervalMinutes"));
-            EditorGUILayout.PropertyField(_serializedSettings.FindProperty("_httpTimeoutSeconds"));
-            EditorGUILayout.PropertyField(_serializedSettings.FindProperty("_offlineFallbackMode"));
-            EditorGUILayout.PropertyField(_serializedSettings.FindProperty("_maxOfflineDays"));
-            EditorGUILayout.PropertyField(_serializedSettings.FindProperty("_debugLogging"));
-            EditorGUILayout.PropertyField(_serializedSettings.FindProperty("_storagePrefix"));
+            var apiKey = _serializedSettings.FindProperty("apiKey");
+            apiKey.stringValue = EditorGUILayout.PasswordField(
+                new GUIContent("Restricted SDK Key"),
+                apiKey.stringValue);
+            EditorGUILayout.PropertyField(_serializedSettings.FindProperty("productId"), new GUIContent("Product Slug"));
+            EditorGUILayout.PropertyField(_serializedSettings.FindProperty("baseUrl"));
+            EditorGUILayout.PropertyField(_serializedSettings.FindProperty("autoValidateInterval"));
+            EditorGUILayout.PropertyField(_serializedSettings.FindProperty("offlineFallbackMode"));
+            EditorGUILayout.PropertyField(_serializedSettings.FindProperty("maxOfflineDays"));
+            EditorGUILayout.PropertyField(_serializedSettings.FindProperty("enableDebugLogging"));
+            EditorGUILayout.HelpBox(
+                "Player settings are inspectable. Use only a client key scoped to licenses:validate.",
+                MessageType.Warning);
 
             if (EditorGUI.EndChangeCheck())
             {
-                _serializedSettings?.ApplyModifiedProperties();
+                _serializedSettings.ApplyModifiedProperties();
             }
 
             EditorGUILayout.Space(10);
@@ -125,7 +150,7 @@ namespace LicenseSeat.Editor
             // Validation status
             if (!_settings.IsValid)
             {
-                EditorGUILayout.HelpBox("API Key is required.", MessageType.Warning);
+                EditorGUILayout.HelpBox("A restricted SDK key and product slug are required.", MessageType.Warning);
             }
             else
             {
@@ -149,15 +174,21 @@ namespace LicenseSeat.Editor
 
         private void DrawTestingUI()
         {
+            if (_settings == null)
+            {
+                return;
+            }
+
             EditorGUILayout.LabelField("Testing", EditorStyles.boldLabel);
 
             EditorGUILayout.HelpBox(
-                "Test license operations in the editor. Note: This creates a real API connection.",
-                MessageType.Info);
+                "This makes a real API request. Use a restricted licenses:validate key. " +
+                "The entered license key is kept only while this window is open and is never shown in results.",
+                MessageType.Warning);
 
             EditorGUILayout.Space(5);
 
-            _testLicenseKey = EditorGUILayout.TextField("License Key", _testLicenseKey);
+            _testLicenseKey = EditorGUILayout.PasswordField("License Key", _testLicenseKey);
 
             EditorGUILayout.Space(5);
 
@@ -166,11 +197,11 @@ namespace LicenseSeat.Editor
             EditorGUILayout.BeginHorizontal();
             if (GUILayout.Button("Test Validate"))
             {
-                TestValidate();
+                _ = TestValidateAsync(GetLifetimeToken());
             }
             if (GUILayout.Button("Test Activate"))
             {
-                TestActivate();
+                _ = TestActivateAsync(GetLifetimeToken());
             }
             EditorGUILayout.EndHorizontal();
 
@@ -189,7 +220,7 @@ namespace LicenseSeat.Editor
             }
         }
 
-        private async void TestValidate()
+        private async Task TestValidateAsync(CancellationToken cancellationToken)
         {
             _isTesting = true;
             _testResult = "Validating...";
@@ -197,10 +228,12 @@ namespace LicenseSeat.Editor
 
             try
             {
-                var options = _settings.ToClientOptions();
+                var options = _settings!.ToClientOptions();
                 using var client = new LicenseSeatClient(options);
 
-                var result = await client.ValidateAsync(_testLicenseKey);
+                var result = await client.ValidateAsync(
+                    _testLicenseKey,
+                    cancellationToken: cancellationToken);
 
                 _testResult = $"Validation Result:\n" +
                               $"  Valid: {result.Valid}\n" +
@@ -208,23 +241,27 @@ namespace LicenseSeat.Editor
 
                 if (result.License != null)
                 {
-                    _testResult += $"  License Key: {result.License.LicenseKey}\n" +
-                                   $"  Status: {result.License.Status}\n" +
+                    _testResult += $"  Status: {result.License.Status}\n" +
                                    $"  Plan: {result.License.PlanKey}";
                 }
             }
-            catch (System.Exception ex)
+            catch (OperationCanceledException)
             {
-                _testResult = $"Error: {ex.Message}";
+                _testResult = "Canceled.";
+            }
+            catch (Exception)
+            {
+                _testResult = "Validation failed. See bounded SDK diagnostics for details.";
             }
             finally
             {
                 _isTesting = false;
+                _testLicenseKey = "";
                 Repaint();
             }
         }
 
-        private async void TestActivate()
+        private async Task TestActivateAsync(CancellationToken cancellationToken)
         {
             _isTesting = true;
             _testResult = "Activating...";
@@ -232,26 +269,42 @@ namespace LicenseSeat.Editor
 
             try
             {
-                var options = _settings.ToClientOptions();
+                var options = _settings!.ToClientOptions();
                 using var client = new LicenseSeatClient(options);
 
-                var license = await client.ActivateAsync(_testLicenseKey);
+                var license = await client.ActivateAsync(
+                    _testLicenseKey,
+                    cancellationToken: cancellationToken);
 
                 _testResult = $"Activation Successful!\n" +
-                              $"  License Key: {license.LicenseKey}\n" +
                               $"  Status: {license.Status}\n" +
                               $"  Plan: {license.PlanKey}\n" +
                               $"  Seat Limit: {license.SeatLimit}";
             }
-            catch (System.Exception ex)
+            catch (OperationCanceledException)
             {
-                _testResult = $"Error: {ex.Message}";
+                _testResult = "Canceled.";
+            }
+            catch (Exception)
+            {
+                _testResult = "Activation failed. See bounded SDK diagnostics for details.";
             }
             finally
             {
                 _isTesting = false;
+                _testLicenseKey = "";
                 Repaint();
             }
+        }
+
+        private CancellationToken GetLifetimeToken()
+        {
+            if (_lifetimeCancellation == null)
+            {
+                throw new InvalidOperationException("The settings window is not active.");
+            }
+
+            return _lifetimeCancellation.Token;
         }
     }
 }

@@ -1,11 +1,13 @@
+#nullable enable
 #if UNITY_EDITOR
 using System.Collections.Generic;
 using System.IO;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.UIElements;
+using LicenseSeat.Unity;
 
-namespace LicenseSeat.Unity.Editor
+namespace LicenseSeat.Editor
 {
     /// <summary>
     /// Provides LicenseSeat settings in Unity's Project Settings window.
@@ -67,9 +69,15 @@ namespace LicenseSeat.Unity.Editor
             EditorGUILayout.LabelField("API Configuration", EditorStyles.boldLabel);
             using (new EditorGUI.IndentLevelScope())
             {
-                EditorGUILayout.PropertyField(_serializedSettings.FindProperty("apiKey"), new GUIContent("API Key"));
-                EditorGUILayout.PropertyField(_serializedSettings.FindProperty("productId"), new GUIContent("Product ID"));
+                var apiKey = _serializedSettings.FindProperty("apiKey");
+                apiKey.stringValue = EditorGUILayout.PasswordField(
+                    new GUIContent("Restricted SDK Key"),
+                    apiKey.stringValue);
+                EditorGUILayout.PropertyField(_serializedSettings.FindProperty("productId"), new GUIContent("Product Slug"));
                 EditorGUILayout.PropertyField(_serializedSettings.FindProperty("baseUrl"), new GUIContent("Base URL"));
+                EditorGUILayout.HelpBox(
+                    "Player settings are inspectable. Use only a client key scoped to licenses:validate.",
+                    MessageType.Warning);
             }
 
             EditorGUILayout.Space(10);
@@ -78,7 +86,6 @@ namespace LicenseSeat.Unity.Editor
             EditorGUILayout.LabelField("Validation Settings", EditorStyles.boldLabel);
             using (new EditorGUI.IndentLevelScope())
             {
-                EditorGUILayout.PropertyField(_serializedSettings.FindProperty("validateOnStart"), new GUIContent("Validate On Start"));
                 EditorGUILayout.PropertyField(_serializedSettings.FindProperty("autoValidateInterval"), new GUIContent("Auto-Validate Interval (sec)"));
             }
 

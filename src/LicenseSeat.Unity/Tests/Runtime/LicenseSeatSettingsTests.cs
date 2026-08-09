@@ -1,3 +1,4 @@
+#nullable enable
 #if UNITY_5_3_OR_NEWER
 using NUnit.Framework;
 using UnityEngine;
@@ -16,6 +17,8 @@ namespace LicenseSeat.Unity.Tests.Runtime
         public void SetUp()
         {
             _settings = ScriptableObject.CreateInstance<LicenseSeatSettings>();
+            _settings.ApiKey = "test-api-key";
+            _settings.ProductSlug = "test-product";
         }
 
         [TearDown]
@@ -38,32 +41,31 @@ namespace LicenseSeat.Unity.Tests.Runtime
         public void Settings_ToClientOptions_ReturnsValidOptions()
         {
             _settings.ApiKey = "test-api-key";
-            _settings.ProductId = "test-product";
+            _settings.ProductSlug = "test-product";
 
             var options = _settings.ToClientOptions();
 
             Assert.That(options, Is.Not.Null);
             Assert.That(options.ApiKey, Is.EqualTo("test-api-key"));
-            // ProductId is not part of LicenseSeatClientOptions - it's passed via ValidationOptions.ProductSlug
+            Assert.That(options.ProductSlug, Is.EqualTo("test-product"));
             Assert.That(options.ApiBaseUrl, Is.EqualTo(LicenseSeatClientOptions.DefaultApiBaseUrl));
         }
 
         [Test]
-        public void Settings_CreateValidationOptions_IncludesProductSlug()
+        public void Settings_ProductSlug_ScopesClientOptions()
         {
-            _settings.ProductId = "test-product";
+            _settings.ProductSlug = "another-product";
 
-            var validationOptions = _settings.CreateValidationOptions();
+            var options = _settings.ToClientOptions();
 
-            Assert.That(validationOptions, Is.Not.Null);
-            Assert.That(validationOptions.ProductSlug, Is.EqualTo("test-product"));
+            Assert.That(options.ProductSlug, Is.EqualTo("another-product"));
         }
 
         [Test]
         public void Settings_ToClientOptions_SetsHttpAdapter()
         {
             _settings.ApiKey = "test-key";
-            _settings.ProductId = "test-product";
+            _settings.ProductSlug = "test-product";
 
             var options = _settings.ToClientOptions();
 
@@ -76,16 +78,16 @@ namespace LicenseSeat.Unity.Tests.Runtime
         public void Settings_IsValid_ReturnsFalse_WhenApiKeyMissing()
         {
             _settings.ApiKey = "";
-            _settings.ProductId = "test-product";
+            _settings.ProductSlug = "test-product";
 
             Assert.That(_settings.IsValid, Is.False);
         }
 
         [Test]
-        public void Settings_IsValid_ReturnsFalse_WhenProductIdMissing()
+        public void Settings_IsValid_ReturnsFalse_WhenProductSlugMissing()
         {
             _settings.ApiKey = "test-key";
-            _settings.ProductId = "";
+            _settings.ProductSlug = "";
 
             Assert.That(_settings.IsValid, Is.False);
         }
@@ -94,7 +96,7 @@ namespace LicenseSeat.Unity.Tests.Runtime
         public void Settings_IsValid_ReturnsTrue_WhenConfigured()
         {
             _settings.ApiKey = "test-key";
-            _settings.ProductId = "test-product";
+            _settings.ProductSlug = "test-product";
 
             Assert.That(_settings.IsValid, Is.True);
         }

@@ -37,7 +37,8 @@ public class InterfaceAndNewFeaturesTests
         ProductSlug = "test-product",
         ApiBaseUrl = "https://api.test.com",
         AutoInitialize = false,
-        AutoValidateInterval = TimeSpan.Zero
+        AutoValidateInterval = TimeSpan.Zero,
+        DeviceId = "device-123"
     };
 
     [Fact]
@@ -99,7 +100,7 @@ public class InterfaceAndNewFeaturesTests
     {
         var options = CreateOptions();
         var mockHttp = new MockHttpClient();
-        mockHttp.SetupPost((_, _) => new HttpResponse(200, """{"valid":true,"license":{"key":"TEST"}}"""));
+        mockHttp.SetupPost((_, _) => new HttpResponse(200, TestResponses.Activation()));
 
         using var client = new LicenseSeatClient(options, mockHttp);
         var resetEventReceived = false;
@@ -136,7 +137,7 @@ public class InterfaceAndNewFeaturesTests
         var options = CreateOptions();
         options.AutoValidateInterval = TimeSpan.FromMilliseconds(100);
         var mockHttp = new MockHttpClient();
-        mockHttp.SetupPost((_, _) => new HttpResponse(200, """{"valid":true,"license":{"key":"TEST"}}"""));
+        mockHttp.SetupPost((_, _) => new HttpResponse(200, TestResponses.Activation()));
 
         using var client = new LicenseSeatClient(options, mockHttp);
         var autoValidationStopped = false;

@@ -1,11 +1,10 @@
+#nullable enable
 #if UNITY_5_3_OR_NEWER
 using System;
-using System.Collections;
 using System.Threading;
 using System.Threading.Tasks;
 using NUnit.Framework;
 using UnityEngine;
-using UnityEngine.TestTools;
 
 namespace LicenseSeat.Unity.Tests.Runtime
 {
@@ -61,35 +60,16 @@ namespace LicenseSeat.Unity.Tests.Runtime
             });
         }
 
-        [UnityTest]
-        public IEnumerator FireAndForget_LogsException_WhenTaskFails()
+        [Test]
+        public async Task FireAndForget_InvokesErrorHandler_WhenTaskFails()
         {
-            var exceptionLogged = false;
+            Exception? observed = null;
+            var failingTask = Task.FromException(new Exception("Test exception"));
 
-            void LogHandler(string message, string stackTrace, LogType type)
-            {
-                if (type == LogType.Exception && message.Contains("Test exception"))
-                {
-                    exceptionLogged = true;
-                }
-            }
+            await failingTask.FireAndForget(error => observed = error);
 
-            Application.logMessageReceived += LogHandler;
-
-            try
-            {
-                var failingTask = Task.Run(() => throw new Exception("Test exception"));
-                failingTask.FireAndForget();
-
-                // Wait a bit for the exception to be logged
-                yield return new WaitForSeconds(0.5f);
-
-                Assert.That(exceptionLogged, Is.True);
-            }
-            finally
-            {
-                Application.logMessageReceived -= LogHandler;
-            }
+            Assert.That(observed, Is.Not.Null);
+            Assert.That(observed!.Message, Is.EqualTo("Test exception"));
         }
 
         [Test]
@@ -101,7 +81,7 @@ namespace LicenseSeat.Unity.Tests.Runtime
             var task = Task.FromCanceled(cts.Token);
 
             // Should not throw
-            Assert.DoesNotThrow(() => task.FireAndForget());
+            Assert.DoesNotThrowAsync(() => task.FireAndForget());
         }
 
         [Test]

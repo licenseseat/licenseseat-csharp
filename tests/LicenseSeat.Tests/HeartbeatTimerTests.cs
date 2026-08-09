@@ -31,21 +31,8 @@ public class HeartbeatTimerTests
         }
     }
 
-    private static readonly string ActivationJson = """
-        {
-            "object": "activation",
-            "id": "123",
-            "device_id": "device-123",
-            "license_key": "TEST-KEY",
-            "activated_at": "2024-01-01T00:00:00Z",
-            "license": {
-                "key": "TEST-KEY",
-                "status": "active",
-                "plan_key": "pro",
-                "active_seats": 1
-            }
-        }
-    """;
+    private static readonly string ActivationJson = TestResponses.Activation();
+    private static readonly string HeartbeatJson = TestResponses.Heartbeat();
 
     private static LicenseSeatClientOptions CreateOptions(TimeSpan heartbeatInterval) => new LicenseSeatClientOptions
     {
@@ -55,6 +42,7 @@ public class HeartbeatTimerTests
         AutoInitialize = false,
         AutoValidateInterval = TimeSpan.Zero, // Disable auto-validation
         HeartbeatInterval = heartbeatInterval,
+        DeviceId = "device-123",
     };
 
     // ================================================================
@@ -94,7 +82,7 @@ public class HeartbeatTimerTests
         mockHttp.SetupPost((url, body) =>
         {
             if (url.Contains("/activate")) return new HttpResponse(200, ActivationJson);
-            if (url.Contains("/heartbeat")) return new HttpResponse(200, """{"object":"heartbeat","received_at":"2024-01-01T00:00:00Z"}""");
+            if (url.Contains("/heartbeat")) return new HttpResponse(200, HeartbeatJson);
             return new HttpResponse(200, "{}");
         });
 
@@ -166,7 +154,7 @@ public class HeartbeatTimerTests
         {
             if (url.Contains("/activate")) return new HttpResponse(200, ActivationJson);
             if (url.Contains("/deactivate")) return new HttpResponse(200, """{"object":"deactivation","activation_id":"123","deactivated_at":"2024-01-01T00:00:00Z"}""");
-            if (url.Contains("/heartbeat")) return new HttpResponse(200, """{"object":"heartbeat","received_at":"2024-01-01T00:00:00Z"}""");
+            if (url.Contains("/heartbeat")) return new HttpResponse(200, HeartbeatJson);
             return new HttpResponse(200, "{}");
         });
 
@@ -202,7 +190,7 @@ public class HeartbeatTimerTests
         mockHttp.SetupPost((url, body) =>
         {
             if (url.Contains("/activate")) return new HttpResponse(200, ActivationJson);
-            if (url.Contains("/heartbeat")) return new HttpResponse(200, """{"object":"heartbeat","received_at":"2024-01-01T00:00:00Z"}""");
+            if (url.Contains("/heartbeat")) return new HttpResponse(200, HeartbeatJson);
             return new HttpResponse(200, "{}");
         });
 
@@ -235,7 +223,7 @@ public class HeartbeatTimerTests
         mockHttp.SetupPost((url, body) =>
         {
             if (url.Contains("/activate")) return new HttpResponse(200, ActivationJson);
-            if (url.Contains("/heartbeat")) return new HttpResponse(200, """{"object":"heartbeat","received_at":"2024-01-01T00:00:00Z"}""");
+            if (url.Contains("/heartbeat")) return new HttpResponse(200, HeartbeatJson);
             return new HttpResponse(200, "{}");
         });
 
@@ -267,7 +255,7 @@ public class HeartbeatTimerTests
         mockHttp.SetupPost((url, body) =>
         {
             if (url.Contains("/activate")) return new HttpResponse(200, ActivationJson);
-            if (url.Contains("/heartbeat")) return new HttpResponse(200, """{"object":"heartbeat","received_at":"2024-01-01T00:00:00Z"}""");
+            if (url.Contains("/heartbeat")) return new HttpResponse(200, HeartbeatJson);
             return new HttpResponse(200, "{}");
         });
 
@@ -304,9 +292,9 @@ public class HeartbeatTimerTests
             if (url.Contains("/validate"))
             {
                 Interlocked.Increment(ref validationCount);
-                return new HttpResponse(200, """{"object":"validation_result","valid":true,"license":{"key":"TEST-KEY","status":"active","active_seats":1}}""");
+                return new HttpResponse(200, TestResponses.ValidValidation());
             }
-            if (url.Contains("/heartbeat")) return new HttpResponse(200, """{"object":"heartbeat","received_at":"2024-01-01T00:00:00Z"}""");
+            if (url.Contains("/heartbeat")) return new HttpResponse(200, HeartbeatJson);
             return new HttpResponse(200, "{}");
         });
 
@@ -320,6 +308,7 @@ public class HeartbeatTimerTests
             AutoInitialize = false,
             AutoValidateInterval = TimeSpan.FromSeconds(5),
             HeartbeatInterval = TimeSpan.FromMilliseconds(200),
+            DeviceId = "device-123",
         };
 
         using var client = new LicenseSeatClient(options, mockHttp);
@@ -350,7 +339,7 @@ public class HeartbeatTimerTests
             if (url.Contains("/heartbeat"))
             {
                 capturedBody = body;
-                return new HttpResponse(200, """{"object":"heartbeat","received_at":"2024-01-01T00:00:00Z"}""");
+                return new HttpResponse(200, HeartbeatJson);
             }
             return new HttpResponse(200, "{}");
         });
@@ -364,6 +353,7 @@ public class HeartbeatTimerTests
             AutoValidateInterval = TimeSpan.Zero,
             HeartbeatInterval = TimeSpan.Zero, // Don't use timer
             TelemetryEnabled = true,
+            DeviceId = "device-123",
         };
 
         using var client = new LicenseSeatClient(options, mockHttp);
@@ -397,7 +387,7 @@ public class HeartbeatTimerTests
             if (url.Contains("/heartbeat"))
             {
                 capturedBody = body;
-                return new HttpResponse(200, """{"object":"heartbeat","received_at":"2024-01-01T00:00:00Z"}""");
+                return new HttpResponse(200, HeartbeatJson);
             }
             return new HttpResponse(200, "{}");
         });
@@ -411,6 +401,7 @@ public class HeartbeatTimerTests
             AutoValidateInterval = TimeSpan.Zero,
             HeartbeatInterval = TimeSpan.Zero,
             TelemetryEnabled = false,
+            DeviceId = "device-123",
         };
 
         using var client = new LicenseSeatClient(options, mockHttp);

@@ -132,7 +132,7 @@ public class LicenseSeatClientOptionsTests
     [Fact]
     public void Validate_WithEmptyApiBaseUrl_ThrowsInvalidOperationException()
     {
-        var options = new LicenseSeatClientOptions { ProductSlug = "test-product", ApiBaseUrl = "" };
+        var options = new LicenseSeatClientOptions { ApiKey = "test-key", ProductSlug = "test-product", ApiBaseUrl = "" };
 
         var exception = Assert.Throws<InvalidOperationException>(() => options.Validate());
         Assert.Contains("ApiBaseUrl", exception.Message);
@@ -141,16 +141,34 @@ public class LicenseSeatClientOptionsTests
     [Fact]
     public void Validate_WithInvalidApiBaseUrl_ThrowsInvalidOperationException()
     {
-        var options = new LicenseSeatClientOptions { ProductSlug = "test-product", ApiBaseUrl = "not-a-valid-url" };
+        var options = new LicenseSeatClientOptions { ApiKey = "test-key", ProductSlug = "test-product", ApiBaseUrl = "not-a-valid-url" };
 
         var exception = Assert.Throws<InvalidOperationException>(() => options.Validate());
         Assert.Contains("ApiBaseUrl", exception.Message);
     }
 
+    [Theory]
+    [InlineData("https://example.com/api/%zz")]
+    [InlineData("https://example.com/api/%2e%2e")]
+    [InlineData("https://example.com/api/%252e%252e")]
+    [InlineData("https://example.com/api/%2fadmin")]
+    [InlineData("https://example.com/api/%5cadmin")]
+    public void Validate_WithAmbiguousEncodedApiBaseUrl_ThrowsInvalidOperationException(string apiBaseUrl)
+    {
+        var options = new LicenseSeatClientOptions
+        {
+            ApiKey = "test-key",
+            ProductSlug = "test-product",
+            ApiBaseUrl = apiBaseUrl
+        };
+
+        Assert.Throws<InvalidOperationException>(() => options.Validate());
+    }
+
     [Fact]
     public void Validate_WithFtpApiBaseUrl_ThrowsInvalidOperationException()
     {
-        var options = new LicenseSeatClientOptions { ProductSlug = "test-product", ApiBaseUrl = "ftp://example.com" };
+        var options = new LicenseSeatClientOptions { ApiKey = "test-key", ProductSlug = "test-product", ApiBaseUrl = "ftp://example.com" };
 
         var exception = Assert.Throws<InvalidOperationException>(() => options.Validate());
         Assert.Contains("ApiBaseUrl", exception.Message);
@@ -159,7 +177,7 @@ public class LicenseSeatClientOptionsTests
     [Fact]
     public void Validate_WithNegativeMaxRetries_ThrowsInvalidOperationException()
     {
-        var options = new LicenseSeatClientOptions { ProductSlug = "test-product", MaxRetries = -1 };
+        var options = new LicenseSeatClientOptions { ApiKey = "test-key", ProductSlug = "test-product", MaxRetries = -1 };
 
         var exception = Assert.Throws<InvalidOperationException>(() => options.Validate());
         Assert.Contains("MaxRetries", exception.Message);
@@ -168,7 +186,7 @@ public class LicenseSeatClientOptionsTests
     [Fact]
     public void Validate_WithNegativeRetryDelay_ThrowsInvalidOperationException()
     {
-        var options = new LicenseSeatClientOptions { ProductSlug = "test-product", RetryDelay = TimeSpan.FromSeconds(-1) };
+        var options = new LicenseSeatClientOptions { ApiKey = "test-key", ProductSlug = "test-product", RetryDelay = TimeSpan.FromSeconds(-1) };
 
         var exception = Assert.Throws<InvalidOperationException>(() => options.Validate());
         Assert.Contains("RetryDelay", exception.Message);
@@ -177,7 +195,7 @@ public class LicenseSeatClientOptionsTests
     [Fact]
     public void Validate_WithNegativeAutoValidateInterval_ThrowsInvalidOperationException()
     {
-        var options = new LicenseSeatClientOptions { ProductSlug = "test-product", AutoValidateInterval = TimeSpan.FromSeconds(-1) };
+        var options = new LicenseSeatClientOptions { ApiKey = "test-key", ProductSlug = "test-product", AutoValidateInterval = TimeSpan.FromSeconds(-1) };
 
         var exception = Assert.Throws<InvalidOperationException>(() => options.Validate());
         Assert.Contains("AutoValidateInterval", exception.Message);
@@ -186,7 +204,7 @@ public class LicenseSeatClientOptionsTests
     [Fact]
     public void Validate_WithNegativeMaxOfflineDays_ThrowsInvalidOperationException()
     {
-        var options = new LicenseSeatClientOptions { ProductSlug = "test-product", MaxOfflineDays = -1 };
+        var options = new LicenseSeatClientOptions { ApiKey = "test-key", ProductSlug = "test-product", MaxOfflineDays = -1 };
 
         var exception = Assert.Throws<InvalidOperationException>(() => options.Validate());
         Assert.Contains("MaxOfflineDays", exception.Message);
@@ -195,7 +213,7 @@ public class LicenseSeatClientOptionsTests
     [Fact]
     public void Validate_WithZeroHttpTimeout_ThrowsInvalidOperationException()
     {
-        var options = new LicenseSeatClientOptions { ProductSlug = "test-product", HttpTimeout = TimeSpan.Zero };
+        var options = new LicenseSeatClientOptions { ApiKey = "test-key", ProductSlug = "test-product", HttpTimeout = TimeSpan.Zero };
 
         var exception = Assert.Throws<InvalidOperationException>(() => options.Validate());
         Assert.Contains("HttpTimeout", exception.Message);
@@ -204,7 +222,7 @@ public class LicenseSeatClientOptionsTests
     [Fact]
     public void Validate_WithHttpsUrl_DoesNotThrow()
     {
-        var options = new LicenseSeatClientOptions { ProductSlug = "test-product", ApiBaseUrl = "https://api.example.com" };
+        var options = new LicenseSeatClientOptions { ApiKey = "test-key", ProductSlug = "test-product", ApiBaseUrl = "https://api.example.com" };
 
         var exception = Record.Exception(() => options.Validate());
 
@@ -212,13 +230,42 @@ public class LicenseSeatClientOptionsTests
     }
 
     [Fact]
-    public void Validate_WithHttpUrl_DoesNotThrow()
+    public void Validate_WithHttpUrlAndExplicitOptIn_DoesNotThrow()
     {
-        var options = new LicenseSeatClientOptions { ProductSlug = "test-product", ApiBaseUrl = "http://localhost:3000" };
+        var options = new LicenseSeatClientOptions
+        {
+            ApiKey = "test-key",
+            ProductSlug = "test-product",
+            ApiBaseUrl = "http://localhost:3000",
+            AllowInsecureHttp = true
+        };
 
         var exception = Record.Exception(() => options.Validate());
 
         Assert.Null(exception);
+    }
+
+    [Fact]
+    public void Validate_WithHttpUrlWithoutOptIn_ThrowsInvalidOperationException()
+    {
+        var options = new LicenseSeatClientOptions
+        {
+            ApiKey = "test-key",
+            ProductSlug = "test-product",
+            ApiBaseUrl = "http://localhost:3000"
+        };
+
+        var exception = Assert.Throws<InvalidOperationException>(() => options.Validate());
+        Assert.Contains("HTTPS", exception.Message);
+    }
+
+    [Fact]
+    public void Validate_WithoutApiKey_ThrowsInvalidOperationException()
+    {
+        var options = new LicenseSeatClientOptions { ProductSlug = "test-product" };
+
+        var exception = Assert.Throws<InvalidOperationException>(() => options.Validate());
+        Assert.Contains("ApiKey", exception.Message);
     }
 
     [Theory]

@@ -20,10 +20,9 @@ In the Inspector, configure:
 
 | Setting | Description |
 |---------|-------------|
-| **API Key** | Your LicenseSeat API key |
-| **Product ID** | Your product identifier |
+| **API Key** | A restricted client SDK key scoped to `licenses:validate` |
+| **Product Slug** | Your product slug |
 | **Base URL** | Leave default unless self-hosting |
-| **Validate On Start** | Auto-validate when game starts |
 | **Enable Debug Logging** | Show SDK logs in console |
 
 ## Step 3: Add Manager to Scene
@@ -60,11 +59,12 @@ public class MyLicenseController : MonoBehaviour
         {
             if (error != null)
             {
-                Debug.LogError($"Activation failed: {error.Message}");
+                Debug.LogError("License activation failed.");
                 return;
             }
 
-            Debug.Log($"License activated: {license.LicenseKey}");
+            // License keys are secrets; never include one in logs.
+            Debug.Log("License activated.");
         }));
     }
 
@@ -89,7 +89,7 @@ public void ValidateLicense()
     {
         if (error != null)
         {
-            Debug.LogError($"Validation error: {error.Message}");
+            Debug.LogError("License validation could not be completed.");
             return;
         }
 
@@ -122,28 +122,17 @@ if (status.Active)
 }
 ```
 
-## Using Async/Await (Alternative)
+## Async/await
 
-If you prefer async/await over coroutines:
+The core async API is available, but pass a cancellation token tied to the
+owning object's lifetime and observe the returned `Task`. Avoid `async void`
+except for a Unity event boundary, and never log license keys or credentials.
 
-```csharp
-using System.Threading.Tasks;
+## Secret handling
 
-public async void ActivateAsync(string licenseKey)
-{
-    try
-    {
-        var license = await _manager.Client.ActivateAsync(licenseKey);
-        Debug.Log($"Activated: {license.LicenseKey}");
-    }
-    catch (LicenseSeatException ex)
-    {
-        Debug.LogError($"Error: {ex.Message}");
-    }
-}
-```
-
-**Warning**: Be careful with async/await in Unity - tasks can outlive GameObjects. Use cancellation tokens or the coroutine API for safety.
+The settings asset and all client code are inspectable in a shipped player.
+Never embed an administrator/server credential. Do not store license keys in
+PlayerPrefs or emit them through logs, analytics, or exception reporting.
 
 ## Testing in Editor
 

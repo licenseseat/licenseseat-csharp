@@ -6,13 +6,9 @@ namespace LicenseSeat.Tests;
 
 public class TelemetryPayloadTests
 {
-    /// <summary>
-    /// Reset static state before each test to avoid cross-test pollution.
-    /// </summary>
+    /// <summary>Retained as a no-op for the shared test setup; telemetry overrides are now instance-scoped.</summary>
     private static void ResetUserOverrides()
     {
-        TelemetryPayload.UserAppVersion = null;
-        TelemetryPayload.UserAppBuild = null;
     }
 
     // ================================================================
@@ -161,53 +157,23 @@ public class TelemetryPayloadTests
     [Fact]
     public void Collect_AppVersion_UserOverrideTakesPrecedence()
     {
-        try
-        {
-            TelemetryPayload.UserAppVersion = "3.2.1";
-            TelemetryPayload.UserAppBuild = null;
-
-            var payload = TelemetryPayload.Collect();
-            Assert.Equal("3.2.1", payload.AppVersion);
-        }
-        finally
-        {
-            ResetUserOverrides();
-        }
+        var payload = TelemetryPayload.Collect("3.2.1", null);
+        Assert.Equal("3.2.1", payload.AppVersion);
     }
 
     [Fact]
     public void Collect_AppBuild_UserOverrideTakesPrecedence()
     {
-        try
-        {
-            TelemetryPayload.UserAppVersion = null;
-            TelemetryPayload.UserAppBuild = "build-42";
-
-            var payload = TelemetryPayload.Collect();
-            Assert.Equal("build-42", payload.AppBuild);
-        }
-        finally
-        {
-            ResetUserOverrides();
-        }
+        var payload = TelemetryPayload.Collect(null, "build-42");
+        Assert.Equal("build-42", payload.AppBuild);
     }
 
     [Fact]
     public void Collect_AppVersionAndBuild_BothOverrides()
     {
-        try
-        {
-            TelemetryPayload.UserAppVersion = "1.0.0";
-            TelemetryPayload.UserAppBuild = "abc123";
-
-            var payload = TelemetryPayload.Collect();
-            Assert.Equal("1.0.0", payload.AppVersion);
-            Assert.Equal("abc123", payload.AppBuild);
-        }
-        finally
-        {
-            ResetUserOverrides();
-        }
+        var payload = TelemetryPayload.Collect("1.0.0", "abc123");
+        Assert.Equal("1.0.0", payload.AppVersion);
+        Assert.Equal("abc123", payload.AppBuild);
     }
 
     // ================================================================
@@ -505,36 +471,22 @@ public class TelemetryPayloadTests
     [Fact]
     public void ClientOptions_AppVersion_PassedToTelemetry()
     {
-        // Verify that constructing a client with AppVersion/AppBuild sets the
-        // telemetry statics. We set the statics directly and call Collect() in the
-        // same block to avoid races with parallel test classes that also create clients.
-        try
+        var payload = TelemetryPayload.Collect("5.0.0", "500");
+        Assert.Equal("5.0.0", payload.AppVersion);
+        Assert.Equal("500", payload.AppBuild);
+
+        var options = new LicenseSeatClientOptions
         {
-            TelemetryPayload.UserAppVersion = "5.0.0";
-            TelemetryPayload.UserAppBuild = "500";
+            ApiKey = "test",
+            ProductSlug = "test",
+            AutoInitialize = false,
+            AutoValidateInterval = TimeSpan.Zero,
+            AppVersion = "6.0.0",
+            AppBuild = "600",
+        };
 
-            var payload = TelemetryPayload.Collect();
-            Assert.Equal("5.0.0", payload.AppVersion);
-            Assert.Equal("500", payload.AppBuild);
-
-            // Also verify the constructor wires them through
-            var options = new LicenseSeatClientOptions
-            {
-                ApiKey = "test",
-                ProductSlug = "test",
-                AutoInitialize = false,
-                AutoValidateInterval = TimeSpan.Zero,
-                AppVersion = "6.0.0",
-                AppBuild = "600",
-            };
-
-            using var client = new LicenseSeatClient(options);
-            Assert.Equal("6.0.0", client.Options.AppVersion);
-            Assert.Equal("600", client.Options.AppBuild);
-        }
-        finally
-        {
-            ResetUserOverrides();
-        }
+        using var client = new LicenseSeatClient(options);
+        Assert.Equal("6.0.0", client.Options.AppVersion);
+        Assert.Equal("600", client.Options.AppBuild);
     }
 }

@@ -1,3 +1,4 @@
+#nullable enable
 #if UNITY_EDITOR
 using NUnit.Framework;
 using UnityEditor;
@@ -26,9 +27,9 @@ namespace LicenseSeat.Unity.Tests.Editor
         {
             // Verify menu items are defined
             var menuMethod = typeof(LicenseSeatMenuItems)
-                .GetMethod("CreateSettingsAsset", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
+                .GetMethod("CreateSettings", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public);
 
-            Assert.That(menuMethod, Is.Not.Null, "CreateSettingsAsset method should exist");
+            Assert.That(menuMethod, Is.Not.Null, "CreateSettings method should exist");
         }
 
         [Test]
@@ -49,7 +50,7 @@ namespace LicenseSeat.Unity.Tests.Editor
 
             Assert.That(settings, Is.Not.Null);
             Assert.That(settings.ApiKey, Is.Empty);
-            Assert.That(settings.ProductId, Is.Empty);
+            Assert.That(settings.ProductSlug, Is.Empty);
 
             Object.DestroyImmediate(settings);
         }
@@ -59,7 +60,7 @@ namespace LicenseSeat.Unity.Tests.Editor
         {
             var settings = ScriptableObject.CreateInstance<LicenseSeatSettings>();
             settings.ApiKey = "test-key";
-            settings.ProductId = "test-product";
+            settings.ProductSlug = "test-product";
             settings.MaxOfflineDays = 14;
 
             // Serialize and verify
