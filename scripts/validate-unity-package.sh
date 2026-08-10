@@ -58,6 +58,9 @@ REQUIRED_FILES=(
     "CHANGELOG.md"
     "LICENSE"
     "link.xml"
+    "Runtime/Plugins/DEPENDENCIES.sha256"
+    "Runtime/Plugins/ThirdPartyNotices.md"
+    "Runtime/Plugins/DOTNET-THIRD-PARTY-NOTICES.txt"
 )
 
 for file in "${REQUIRED_FILES[@]}"; do
@@ -76,6 +79,12 @@ echo ""
 echo "2. Validating package.json..."
 
 if [ -f "$UNITY_PKG/package.json" ]; then
+    if python3 -m json.tool "$UNITY_PKG/package.json" >/dev/null; then
+        ok "package.json is valid JSON"
+    else
+        error "package.json is not valid JSON"
+    fi
+
     # Check required fields
     REQUIRED_FIELDS=("name" "version" "displayName" "description" "unity" "license")
 
@@ -101,6 +110,19 @@ if [ -f "$UNITY_PKG/package.json" ]; then
         ok "Version '$PKG_VERSION' follows semantic versioning"
     else
         error "Version '$PKG_VERSION' does not follow semantic versioning"
+    fi
+
+    CORE_VERSION=$(sed -n 's:.*<Version>\([^<]*\)</Version>.*:\1:p' "$ROOT_DIR/src/LicenseSeat/LicenseSeat.csproj" | head -1)
+    if [ "$PKG_VERSION" = "$CORE_VERSION" ]; then
+        ok "Unity package version matches core SDK version '$CORE_VERSION'"
+    else
+        error "Unity package version '$PKG_VERSION' does not match core SDK version '$CORE_VERSION'"
+    fi
+
+    if grep -Fq "## [$PKG_VERSION]" "$UNITY_PKG/CHANGELOG.md"; then
+        ok "CHANGELOG.md contains an entry for '$PKG_VERSION'"
+    else
+        error "CHANGELOG.md has no entry for package version '$PKG_VERSION'"
     fi
 
     # Check Unity version
@@ -172,11 +194,10 @@ for asmdef in "${REQUIRED_ASMDEFS[@]}"; do
     if [ -f "$UNITY_PKG/$asmdef" ]; then
         ok "$asmdef exists"
 
-        # Validate asmdef has basic JSON structure (opening and closing braces)
-        if head -1 "$UNITY_PKG/$asmdef" | grep -q '{' && tail -1 "$UNITY_PKG/$asmdef" | grep -q '}'; then
-            ok "$asmdef has valid JSON structure"
+        if python3 -m json.tool "$UNITY_PKG/$asmdef" >/dev/null; then
+            ok "$asmdef is valid JSON"
         else
-            error "$asmdef may not be valid JSON"
+            error "$asmdef is not valid JSON"
         fi
     else
         error "$asmdef is missing"
@@ -201,9 +222,75 @@ fi
 echo ""
 
 # ============================================================
-# 5. Check Samples Structure
+# 5. Check Managed Dependency Integrity
 # ============================================================
-echo "5. Checking samples structure..."
+echo "5. Checking managed dependency integrity..."
+
+PLUGIN_DIR="$UNITY_PKG/Runtime/Plugins"
+PLUGIN_DLLS=(
+    "BouncyCastle.Cryptography.dll"
+    "Microsoft.Bcl.AsyncInterfaces.dll"
+    "System.IO.Pipelines.dll"
+    "System.Runtime.CompilerServices.Unsafe.dll"
+    "System.Text.Encodings.Web.dll"
+    "System.Text.Json.dll"
+)
+
+for dll in "${PLUGIN_DLLS[@]}"; do
+    if [ -f "$PLUGIN_DIR/$dll" ]; then
+        ok "Runtime/Plugins/$dll exists"
+    else
+        error "Runtime/Plugins/$dll is missing"
+    fi
+
+    if [ -f "$PLUGIN_DIR/$dll.meta" ] && grep -q "isExplicitlyReferenced: 1" "$PLUGIN_DIR/$dll.meta"; then
+        ok "$dll has an explicit-reference PluginImporter"
+    else
+        error "$dll.meta is missing or does not disable automatic references"
+    fi
+
+    if grep -Fq "\"$dll\"" "$UNITY_PKG/Runtime/LicenseSeat.Unity.Runtime.asmdef"; then
+        ok "Runtime assembly explicitly references $dll"
+    else
+        error "Runtime assembly does not explicitly reference $dll"
+    fi
+done
+
+DLL_COUNT=$(find "$PLUGIN_DIR" -maxdepth 1 -type f -name '*.dll' | wc -l | tr -d ' ')
+if [ "$DLL_COUNT" -eq "${#PLUGIN_DLLS[@]}" ]; then
+    ok "No unexpected managed plugin DLLs are present"
+else
+    error "Expected ${#PLUGIN_DLLS[@]} managed plugin DLLs, found $DLL_COUNT"
+fi
+
+if command -v sha256sum >/dev/null 2>&1; then
+    if (cd "$PLUGIN_DIR" && sha256sum -c DEPENDENCIES.sha256); then
+        ok "Managed dependency hashes match DEPENDENCIES.sha256"
+    else
+        error "Managed dependency hash verification failed"
+    fi
+elif command -v shasum >/dev/null 2>&1; then
+    if (cd "$PLUGIN_DIR" && shasum -a 256 -c DEPENDENCIES.sha256); then
+        ok "Managed dependency hashes match DEPENDENCIES.sha256"
+    else
+        error "Managed dependency hash verification failed"
+    fi
+else
+    error "Neither sha256sum nor shasum is available for dependency verification"
+fi
+
+if grep -q '"overrideReferences"[[:space:]]*:[[:space:]]*true' "$UNITY_PKG/Runtime/LicenseSeat.Unity.Runtime.asmdef"; then
+    ok "Runtime assembly overrides implicit plugin references"
+else
+    error "Runtime assembly must set overrideReferences to true"
+fi
+
+echo ""
+
+# ============================================================
+# 6. Check Samples Structure
+# ============================================================
+echo "6. Checking samples structure..."
 
 if [ -d "$UNITY_PKG/Samples~" ]; then
     # Count samples
@@ -235,9 +322,9 @@ fi
 echo ""
 
 # ============================================================
-# 6. Check IL2CPP Support
+# 7. Check IL2CPP Metadata
 # ============================================================
-echo "6. Checking IL2CPP support..."
+echo "7. Checking IL2CPP metadata..."
 
 if [ -f "$UNITY_PKG/link.xml" ]; then
     ok "link.xml exists"
@@ -258,18 +345,18 @@ fi
 
 # Check for IUnityLinkerProcessor (critical for UPM packages)
 if grep -rq "IUnityLinkerProcessor" "$UNITY_PKG/Editor/"*.cs 2>/dev/null; then
-    ok "IUnityLinkerProcessor implementation found (link.xml will work in UPM)"
+    ok "IUnityLinkerProcessor implementation found"
 else
-    error "No IUnityLinkerProcessor implementation found - link.xml will NOT work in UPM packages!"
+    error "No IUnityLinkerProcessor implementation found for UPM linker metadata"
     info "Create an Editor script that implements IUnityLinkerProcessor.GenerateAdditionalLinkXmlFile"
 fi
 
 echo ""
 
 # ============================================================
-# 7. Check Documentation
+# 8. Check Documentation
 # ============================================================
-echo "7. Checking documentation..."
+echo "8. Checking documentation..."
 
 if [ -d "$UNITY_PKG/Documentation~" ]; then
     DOC_COUNT=$(find "$UNITY_PKG/Documentation~" -name "*.md" | wc -l)
@@ -288,9 +375,9 @@ fi
 echo ""
 
 # ============================================================
-# 8. Check for Common Issues
+# 9. Check for Common Issues
 # ============================================================
-echo "8. Checking for common issues..."
+echo "9. Checking for common issues..."
 
 # Check for .meta files in Samples~ (should not exist)
 if find "$UNITY_PKG/Samples~" -name "*.meta" 2>/dev/null | grep -q .; then
@@ -316,9 +403,9 @@ fi
 echo ""
 
 # ============================================================
-# 9. OpenUPM Compatibility Check
+# 10. OpenUPM Compatibility Check
 # ============================================================
-echo "9. Checking OpenUPM compatibility..."
+echo "10. Checking OpenUPM compatibility..."
 
 # Check package name is lowercase
 PKG_NAME_LOWER=$(echo "$PKG_NAME" | tr '[:upper:]' '[:lower:]')
@@ -354,11 +441,12 @@ echo "=============================================="
 echo ""
 
 if [ $ERRORS -eq 0 ] && [ $WARNINGS -eq 0 ]; then
-    echo -e "${GREEN}All checks passed! Package is ready for UPM distribution.${NC}"
+    echo -e "${GREEN}All static package checks passed.${NC}"
+    echo "Real Unity Editor, player, and IL2CPP build tests are still required before release."
     exit 0
 elif [ $ERRORS -eq 0 ]; then
     echo -e "${YELLOW}Package validation completed with $WARNINGS warning(s).${NC}"
-    echo "The package should work, but consider addressing the warnings."
+    echo "Resolve warnings and run real Unity Editor/player build tests before release."
     exit 0
 else
     echo -e "${RED}Package validation failed with $ERRORS error(s) and $WARNINGS warning(s).${NC}"

@@ -1,139 +1,142 @@
+#nullable enable
 using System;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 
-namespace LicenseSeat;
-
-/// <summary>
-/// Extension methods for adding LicenseSeat services to an <see cref="IServiceCollection"/>.
-/// </summary>
-public static class ServiceCollectionExtensions
+namespace LicenseSeat
 {
-    /// <summary>
-    /// Adds the LicenseSeat client to the service collection as a singleton.
-    /// </summary>
-    /// <param name="services">The service collection.</param>
-    /// <param name="apiKey">The API key for authentication.</param>
-    /// <param name="productSlug">The product slug for API operations.</param>
-    /// <returns>The service collection for chaining.</returns>
-    /// <example>
-    /// <code>
-    /// services.AddLicenseSeatClient("your-api-key", "your-product-slug");
-    /// </code>
-    /// </example>
-    public static IServiceCollection AddLicenseSeatClient(
-        this IServiceCollection services,
-        string apiKey,
-        string productSlug)
-    {
-        if (string.IsNullOrWhiteSpace(apiKey))
-        {
-            throw new ArgumentException("API key cannot be empty", nameof(apiKey));
-        }
-
-        if (string.IsNullOrWhiteSpace(productSlug))
-        {
-            throw new ArgumentException("Product slug cannot be empty", nameof(productSlug));
-        }
-
-        return services.AddLicenseSeatClient(options =>
-        {
-            options.ApiKey = apiKey;
-            options.ProductSlug = productSlug;
-        });
-    }
 
     /// <summary>
-    /// Adds the LicenseSeat client to the service collection as a singleton with custom configuration.
+    /// Extension methods for adding LicenseSeat services to an <see cref="IServiceCollection"/>.
     /// </summary>
-    /// <param name="services">The service collection.</param>
-    /// <param name="configure">Action to configure the client options.</param>
-    /// <returns>The service collection for chaining.</returns>
-    /// <example>
-    /// <code>
-    /// services.AddLicenseSeatClient(options => {
-    ///     options.ApiKey = "your-api-key";
-    ///     options.ApiBaseUrl = "https://custom.api.com";
-    ///     options.Debug = true;
-    /// });
-    /// </code>
-    /// </example>
-    public static IServiceCollection AddLicenseSeatClient(
-        this IServiceCollection services,
-        Action<LicenseSeatClientOptions> configure)
+    public static class ServiceCollectionExtensions
     {
-        if (configure == null)
+        /// <summary>
+        /// Adds the LicenseSeat client to the service collection as a singleton.
+        /// </summary>
+        /// <param name="services">The service collection.</param>
+        /// <param name="apiKey">The API key for authentication.</param>
+        /// <param name="productSlug">The product slug for API operations.</param>
+        /// <returns>The service collection for chaining.</returns>
+        /// <example>
+        /// <code>
+        /// services.AddLicenseSeatClient("your-api-key", "your-product-slug");
+        /// </code>
+        /// </example>
+        public static IServiceCollection AddLicenseSeatClient(
+            this IServiceCollection services,
+            string apiKey,
+            string productSlug)
         {
-            throw new ArgumentNullException(nameof(configure));
+            if (string.IsNullOrWhiteSpace(apiKey))
+            {
+                throw new ArgumentException("API key cannot be empty", nameof(apiKey));
+            }
+
+            if (string.IsNullOrWhiteSpace(productSlug))
+            {
+                throw new ArgumentException("Product slug cannot be empty", nameof(productSlug));
+            }
+
+            return services.AddLicenseSeatClient(options =>
+            {
+                options.ApiKey = apiKey;
+                options.ProductSlug = productSlug;
+            });
         }
 
-        services.Configure(configure);
-
-        services.TryAddSingleton<ILicenseSeatClient>(sp =>
+        /// <summary>
+        /// Adds the LicenseSeat client to the service collection as a singleton with custom configuration.
+        /// </summary>
+        /// <param name="services">The service collection.</param>
+        /// <param name="configure">Action to configure the client options.</param>
+        /// <returns>The service collection for chaining.</returns>
+        /// <example>
+        /// <code>
+        /// services.AddLicenseSeatClient(options => {
+        ///     options.ApiKey = "your-api-key";
+        ///     options.ApiBaseUrl = "https://custom.api.com";
+        ///     options.Debug = true;
+        /// });
+        /// </code>
+        /// </example>
+        public static IServiceCollection AddLicenseSeatClient(
+            this IServiceCollection services,
+            Action<LicenseSeatClientOptions> configure)
         {
-            var optionsSnapshot = sp.GetRequiredService<IOptions<LicenseSeatClientOptions>>();
-            return new LicenseSeatClient(optionsSnapshot.Value);
-        });
+            if (configure == null)
+            {
+                throw new ArgumentNullException(nameof(configure));
+            }
 
-        return services;
-    }
+            services.Configure(configure);
 
-    /// <summary>
-    /// Adds the LicenseSeat client to the service collection as a singleton with the provided options instance.
-    /// </summary>
-    /// <param name="services">The service collection.</param>
-    /// <param name="options">The pre-configured options instance.</param>
-    /// <returns>The service collection for chaining.</returns>
-    /// <example>
-    /// <code>
-    /// var options = new LicenseSeatClientOptions("your-api-key")
-    /// {
-    ///     Debug = true,
-    ///     AutoValidateInterval = TimeSpan.FromMinutes(30)
-    /// };
-    /// services.AddLicenseSeatClient(options);
-    /// </code>
-    /// </example>
-    public static IServiceCollection AddLicenseSeatClient(
-        this IServiceCollection services,
-        LicenseSeatClientOptions options)
-    {
-        if (options == null)
-        {
-            throw new ArgumentNullException(nameof(options));
+            services.TryAddSingleton<ILicenseSeatClient>(sp =>
+            {
+                var optionsSnapshot = sp.GetRequiredService<IOptions<LicenseSeatClientOptions>>();
+                return new LicenseSeatClient(optionsSnapshot.Value);
+            });
+
+            return services;
         }
 
-        services.TryAddSingleton<ILicenseSeatClient>(new LicenseSeatClient(options));
-
-        return services;
-    }
-
-    /// <summary>
-    /// Adds the LicenseSeat client to the service collection using a factory function.
-    /// </summary>
-    /// <param name="services">The service collection.</param>
-    /// <param name="factory">Factory function to create the client.</param>
-    /// <returns>The service collection for chaining.</returns>
-    /// <example>
-    /// <code>
-    /// services.AddLicenseSeatClient(sp => {
-    ///     var config = sp.GetRequiredService&lt;IConfiguration&gt;();
-    ///     return new LicenseSeatClient(new LicenseSeatClientOptions(config["LicenseSeat:ApiKey"]));
-    /// });
-    /// </code>
-    /// </example>
-    public static IServiceCollection AddLicenseSeatClient(
-        this IServiceCollection services,
-        Func<IServiceProvider, ILicenseSeatClient> factory)
-    {
-        if (factory == null)
+        /// <summary>
+        /// Adds the LicenseSeat client to the service collection as a singleton with the provided options instance.
+        /// </summary>
+        /// <param name="services">The service collection.</param>
+        /// <param name="options">The pre-configured options instance.</param>
+        /// <returns>The service collection for chaining.</returns>
+        /// <example>
+        /// <code>
+        /// var options = new LicenseSeatClientOptions("your-api-key")
+        /// {
+        ///     Debug = true,
+        ///     AutoValidateInterval = TimeSpan.FromMinutes(30)
+        /// };
+        /// services.AddLicenseSeatClient(options);
+        /// </code>
+        /// </example>
+        public static IServiceCollection AddLicenseSeatClient(
+            this IServiceCollection services,
+            LicenseSeatClientOptions options)
         {
-            throw new ArgumentNullException(nameof(factory));
+            if (options == null)
+            {
+                throw new ArgumentNullException(nameof(options));
+            }
+
+            services.TryAddSingleton<ILicenseSeatClient>(new LicenseSeatClient(options));
+
+            return services;
         }
 
-        services.TryAddSingleton(factory);
+        /// <summary>
+        /// Adds the LicenseSeat client to the service collection using a factory function.
+        /// </summary>
+        /// <param name="services">The service collection.</param>
+        /// <param name="factory">Factory function to create the client.</param>
+        /// <returns>The service collection for chaining.</returns>
+        /// <example>
+        /// <code>
+        /// services.AddLicenseSeatClient(sp => {
+        ///     var config = sp.GetRequiredService&lt;IConfiguration&gt;();
+        ///     return new LicenseSeatClient(new LicenseSeatClientOptions(config["LicenseSeat:ApiKey"]));
+        /// });
+        /// </code>
+        /// </example>
+        public static IServiceCollection AddLicenseSeatClient(
+            this IServiceCollection services,
+            Func<IServiceProvider, ILicenseSeatClient> factory)
+        {
+            if (factory == null)
+            {
+                throw new ArgumentNullException(nameof(factory));
+            }
 
-        return services;
+            services.TryAddSingleton(factory);
+
+            return services;
+        }
     }
 }

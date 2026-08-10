@@ -1,3 +1,4 @@
+#nullable enable
 #if UNITY_5_3_OR_NEWER
 using System;
 using System.Collections;
@@ -23,11 +24,11 @@ namespace LicenseSeat
         /// <code>
         /// StartCoroutine(client.ActivateAsync("KEY").ToCoroutine((license, error) => {
         ///     if (error != null) Debug.LogError(error);
-        ///     else Debug.Log($"Activated: {license.LicenseKey}");
+        ///     else Debug.Log("License activated");
         /// }));
         /// </code>
         /// </example>
-        public static IEnumerator ToCoroutine<T>(this Task<T> task, Action<T, Exception> callback)
+        public static IEnumerator ToCoroutine<T>(this Task<T> task, Action<T?, Exception?>? callback)
         {
             if (task == null)
             {
@@ -67,7 +68,7 @@ namespace LicenseSeat
         /// }));
         /// </code>
         /// </example>
-        public static IEnumerator ToCoroutine(this Task task, Action<Exception> callback)
+        public static IEnumerator ToCoroutine(this Task task, Action<Exception?>? callback)
         {
             if (task == null)
             {
@@ -107,7 +108,7 @@ namespace LicenseSeat
         /// <code>
         /// this.RunTaskAsCoroutine(
         ///     () => client.ActivateAsync("KEY"),
-        ///     license => Debug.Log($"Activated: {license.LicenseKey}"),
+        ///     license => Debug.Log("License activated"),
         ///     error => ShowErrorUI(error.Message)
         /// );
         /// </code>
@@ -115,8 +116,8 @@ namespace LicenseSeat
         public static Coroutine RunTaskAsCoroutine<T>(
             this MonoBehaviour mono,
             Func<Task<T>> taskFunc,
-            Action<T> onComplete = null,
-            Action<Exception> onError = null)
+            Action<T>? onComplete = null,
+            Action<Exception>? onError = null)
         {
             if (mono == null)
             {
@@ -143,8 +144,8 @@ namespace LicenseSeat
         public static Coroutine RunTaskAsCoroutine(
             this MonoBehaviour mono,
             Func<Task> taskFunc,
-            Action onComplete = null,
-            Action<Exception> onError = null)
+            Action? onComplete = null,
+            Action<Exception>? onError = null)
         {
             if (mono == null)
             {
@@ -161,8 +162,8 @@ namespace LicenseSeat
 
         private static IEnumerator RunTaskCoroutine<T>(
             Func<Task<T>> taskFunc,
-            Action<T> onComplete,
-            Action<Exception> onError)
+            Action<T>? onComplete,
+            Action<Exception>? onError)
         {
             Task<T> task;
             try
@@ -189,7 +190,8 @@ namespace LicenseSeat
 
             if (task.IsFaulted)
             {
-                var ex = task.Exception?.InnerException ?? task.Exception;
+                var ex = task.Exception?.GetBaseException() ??
+                         new InvalidOperationException("Task failed without an exception.");
                 if (onError != null)
                 {
                     onError(ex);
@@ -219,8 +221,8 @@ namespace LicenseSeat
 
         private static IEnumerator RunTaskCoroutine(
             Func<Task> taskFunc,
-            Action onComplete,
-            Action<Exception> onError)
+            Action? onComplete,
+            Action<Exception>? onError)
         {
             Task task;
             try
@@ -247,7 +249,8 @@ namespace LicenseSeat
 
             if (task.IsFaulted)
             {
-                var ex = task.Exception?.InnerException ?? task.Exception;
+                var ex = task.Exception?.GetBaseException() ??
+                         new InvalidOperationException("Task failed without an exception.");
                 if (onError != null)
                 {
                     onError(ex);

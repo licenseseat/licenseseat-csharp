@@ -1,3 +1,4 @@
+#nullable enable
 #if UNITY_5_3_OR_NEWER
 using System;
 using System.Threading;
@@ -7,76 +8,87 @@ using UnityEngine;
 namespace LicenseSeat.Unity
 {
     /// <summary>
-    /// Extension methods for Unity-safe task handling.
-    /// Addresses common pitfalls with async/await in Unity:
-    /// - Tasks continuing after GameObject destruction
-    /// - Memory leaks from zombie tasks
-    /// - Proper cancellation on scene unload
+    /// Task helpers with explicit cancellation, timeout, observation, and Unity
+    /// synchronization-context behavior. None of these helpers use async void.
     /// </summary>
     public static class TaskExtensions
     {
         /// <summary>
-        /// Runs a task with automatic cancellation when the associated MonoBehaviour is destroyed.
-        /// This prevents "zombie tasks" that continue running after their context is gone.
+        /// Stops awaiting a task when the supplied lifetime token is canceled.
+        /// This does not cancel the underlying operation; pass the same token to
+        /// that operation when cooperative cancellation is required.
         /// </summary>
-        /// <typeparam name="T">The result type of the task.</typeparam>
-        /// <param name="task">The task to run.</param>
-        /// <param name="destroyCancellationToken">A cancellation token tied to the MonoBehaviour's lifecycle.</param>
-        /// <returns>The task result, or throws OperationCanceledException if the MonoBehaviour was destroyed.</returns>
-        public static async Task<T> WithCancellation<T>(this Task<T> task, CancellationToken destroyCancellationToken)
+        public static async Task<T> WithCancellation<T>(
+            this Task<T> task,
+            CancellationToken lifetimeToken)
         {
-            var tcs = new TaskCompletionSource<bool>();
-
-            using (destroyCancellationToken.Register(() => tcs.TrySetResult(true)))
+            if (task == null)
             {
-                var completedTask = await Task.WhenAny(task, tcs.Task);
+                throw new ArgumentNullException(nameof(task));
+            }
 
-                if (completedTask == tcs.Task)
+            lifetimeToken.ThrowIfCancellationRequested();
+            var cancellation = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+
+            using (lifetimeToken.Register(() => cancellation.TrySetResult(true)))
+            {
+                if (await Task.WhenAny(task, cancellation.Task).ConfigureAwait(false) == cancellation.Task)
                 {
-                    throw new OperationCanceledException(destroyCancellationToken);
+                    throw new OperationCanceledException(lifetimeToken);
                 }
 
-                return await task;
+                return await task.ConfigureAwait(false);
             }
         }
 
         /// <summary>
-        /// Runs a task with automatic cancellation when the associated MonoBehaviour is destroyed.
+        /// Stops awaiting a task when the supplied lifetime token is canceled.
         /// </summary>
-        /// <param name="task">The task to run.</param>
-        /// <param name="destroyCancellationToken">A cancellation token tied to the MonoBehaviour's lifecycle.</param>
-        public static async Task WithCancellation(this Task task, CancellationToken destroyCancellationToken)
+        public static async Task WithCancellation(
+            this Task task,
+            CancellationToken lifetimeToken)
         {
-            var tcs = new TaskCompletionSource<bool>();
-
-            using (destroyCancellationToken.Register(() => tcs.TrySetResult(true)))
+            if (task == null)
             {
-                var completedTask = await Task.WhenAny(task, tcs.Task);
+                throw new ArgumentNullException(nameof(task));
+            }
 
-                if (completedTask == tcs.Task)
+            lifetimeToken.ThrowIfCancellationRequested();
+            var cancellation = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+
+            using (lifetimeToken.Register(() => cancellation.TrySetResult(true)))
+            {
+                if (await Task.WhenAny(task, cancellation.Task).ConfigureAwait(false) == cancellation.Task)
                 {
-                    throw new OperationCanceledException(destroyCancellationToken);
+                    throw new OperationCanceledException(lifetimeToken);
                 }
 
-                await task;
+                await task.ConfigureAwait(false);
             }
         }
 
         /// <summary>
-        /// Safely fires and forgets a task, logging any exceptions.
-        /// Use this when you don't need to await the result but want to handle errors gracefully.
+        /// Observes a task and handles its exception. Callers should retain or
+        /// explicitly discard the returned Task so the lifetime choice is visible.
         /// </summary>
-        /// <param name="task">The task to fire and forget.</param>
-        /// <param name="errorHandler">Optional custom error handler. If null, logs to Debug.LogException.</param>
-        public static async void FireAndForget(this Task task, Action<Exception>? errorHandler = null)
+        public static async Task FireAndForget(
+            this Task task,
+            Action<Exception>? errorHandler = null)
         {
+            if (task == null)
+            {
+                throw new ArgumentNullException(nameof(task));
+            }
+
             try
             {
-                await task;
+                await task.ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
-                // Cancellation is expected, don't log
+                // Cancellation is expected for lifetime-bound work.
             }
             catch (Exception ex)
             {
@@ -86,113 +98,167 @@ namespace LicenseSeat.Unity
                 }
                 else
                 {
-                    Debug.LogException(ex);
+                    Debug.LogError("[LicenseSeat SDK] An observed background task failed.");
                 }
             }
         }
 
         /// <summary>
-        /// Runs a task on the Unity main thread after completion.
-        /// Useful for updating UI or GameObjects after async operations.
+        /// Runs a continuation on the Unity synchronization context captured at
+        /// invocation. Invoke this method from Unity's main thread.
         /// </summary>
-        /// <typeparam name="T">The result type of the task.</typeparam>
-        /// <param name="task">The task to run.</param>
-        /// <param name="continuation">The action to run on the main thread with the result.</param>
-        public static async void ContinueOnMainThread<T>(this Task<T> task, Action<T> continuation)
+        public static async Task ContinueOnMainThread<T>(
+            this Task<T> task,
+            Action<T> continuation)
         {
-            try
+            if (task == null)
             {
-                var result = await task;
+                throw new ArgumentNullException(nameof(task));
+            }
 
-                // Ensure we're on the main thread
-                if (SynchronizationContext.Current == null)
-                {
-                    // We're not on the main thread, need to post back
-                    // In Unity, this typically happens automatically with await
-                    // but we ensure it here for safety
-                    continuation(result);
-                }
-                else
-                {
-                    continuation(result);
-                }
-            }
-            catch (OperationCanceledException)
+            if (continuation == null)
             {
-                // Cancellation is expected, don't continue
+                throw new ArgumentNullException(nameof(continuation));
             }
-            catch (Exception ex)
-            {
-                Debug.LogException(ex);
-            }
+
+            var unityContext = SynchronizationContext.Current ??
+                throw new InvalidOperationException(
+                    "ContinueOnMainThread must be invoked from Unity's main thread.");
+
+            var result = await task.ConfigureAwait(false);
+            await PostAsync(unityContext, () => continuation(result)).ConfigureAwait(false);
         }
 
         /// <summary>
-        /// Runs a task on the Unity main thread after completion.
+        /// Runs a continuation on the Unity synchronization context captured at
+        /// invocation. Invoke this method from Unity's main thread.
         /// </summary>
-        /// <param name="task">The task to run.</param>
-        /// <param name="continuation">The action to run on the main thread.</param>
-        public static async void ContinueOnMainThread(this Task task, Action continuation)
+        public static async Task ContinueOnMainThread(
+            this Task task,
+            Action continuation)
         {
-            try
+            if (task == null)
             {
-                await task;
-                continuation();
+                throw new ArgumentNullException(nameof(task));
             }
-            catch (OperationCanceledException)
+
+            if (continuation == null)
             {
-                // Cancellation is expected, don't continue
+                throw new ArgumentNullException(nameof(continuation));
             }
-            catch (Exception ex)
-            {
-                Debug.LogException(ex);
-            }
+
+            var unityContext = SynchronizationContext.Current ??
+                throw new InvalidOperationException(
+                    "ContinueOnMainThread must be invoked from Unity's main thread.");
+
+            await task.ConfigureAwait(false);
+            await PostAsync(unityContext, continuation).ConfigureAwait(false);
         }
 
         /// <summary>
-        /// Wraps a task with a timeout, throwing TimeoutException if the operation takes too long.
+        /// Stops awaiting a task after a timeout. This does not cancel the
+        /// underlying operation; pass a cancellation token to that operation too.
         /// </summary>
-        /// <typeparam name="T">The result type of the task.</typeparam>
-        /// <param name="task">The task to run.</param>
-        /// <param name="timeout">The maximum time to wait.</param>
-        /// <returns>The task result.</returns>
-        /// <exception cref="TimeoutException">Thrown if the task doesn't complete within the timeout.</exception>
         public static async Task<T> WithTimeout<T>(this Task<T> task, TimeSpan timeout)
         {
-            using var cts = new CancellationTokenSource();
-            var delayTask = Task.Delay(timeout, cts.Token);
-
-            var completedTask = await Task.WhenAny(task, delayTask);
-
-            if (completedTask == delayTask)
+            if (task == null)
             {
-                throw new TimeoutException($"Operation timed out after {timeout.TotalSeconds} seconds.");
+                throw new ArgumentNullException(nameof(task));
             }
 
-            cts.Cancel(); // Cancel the delay task
-            return await task;
+            ValidateTimeout(timeout);
+            if (timeout == Timeout.InfiniteTimeSpan)
+            {
+                return await task.ConfigureAwait(false);
+            }
+
+            using var timeoutCancellation = new CancellationTokenSource();
+            var delay = Task.Delay(timeout, timeoutCancellation.Token);
+            if (await Task.WhenAny(task, delay).ConfigureAwait(false) == delay)
+            {
+                _ = ObserveLateCompletionAsync(task);
+                throw new TimeoutException("Operation timed out.");
+            }
+
+            timeoutCancellation.Cancel();
+            return await task.ConfigureAwait(false);
         }
 
         /// <summary>
-        /// Wraps a task with a timeout, throwing TimeoutException if the operation takes too long.
+        /// Stops awaiting a task after a timeout. This does not cancel the
+        /// underlying operation; pass a cancellation token to that operation too.
         /// </summary>
-        /// <param name="task">The task to run.</param>
-        /// <param name="timeout">The maximum time to wait.</param>
-        /// <exception cref="TimeoutException">Thrown if the task doesn't complete within the timeout.</exception>
         public static async Task WithTimeout(this Task task, TimeSpan timeout)
         {
-            using var cts = new CancellationTokenSource();
-            var delayTask = Task.Delay(timeout, cts.Token);
-
-            var completedTask = await Task.WhenAny(task, delayTask);
-
-            if (completedTask == delayTask)
+            if (task == null)
             {
-                throw new TimeoutException($"Operation timed out after {timeout.TotalSeconds} seconds.");
+                throw new ArgumentNullException(nameof(task));
             }
 
-            cts.Cancel();
-            await task;
+            ValidateTimeout(timeout);
+            if (timeout == Timeout.InfiniteTimeSpan)
+            {
+                await task.ConfigureAwait(false);
+                return;
+            }
+
+            using var timeoutCancellation = new CancellationTokenSource();
+            var delay = Task.Delay(timeout, timeoutCancellation.Token);
+            if (await Task.WhenAny(task, delay).ConfigureAwait(false) == delay)
+            {
+                _ = ObserveLateCompletionAsync(task);
+                throw new TimeoutException("Operation timed out.");
+            }
+
+            timeoutCancellation.Cancel();
+            await task.ConfigureAwait(false);
+        }
+
+        private static void ValidateTimeout(TimeSpan timeout)
+        {
+            if (timeout != Timeout.InfiniteTimeSpan && timeout <= TimeSpan.Zero)
+            {
+                throw new ArgumentOutOfRangeException(nameof(timeout), "Timeout must be positive or infinite.");
+            }
+        }
+
+        private static async Task ObserveLateCompletionAsync(Task task)
+        {
+            try
+            {
+                await task.ConfigureAwait(false);
+            }
+            catch (Exception)
+            {
+                // Deliberately observe a fault after the caller has timed out.
+            }
+        }
+
+        private static Task PostAsync(SynchronizationContext context, Action continuation)
+        {
+            if (ReferenceEquals(SynchronizationContext.Current, context))
+            {
+                continuation();
+                return Task.CompletedTask;
+            }
+
+            var completion = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            context.Post(
+                _ =>
+                {
+                    try
+                    {
+                        continuation();
+                        completion.TrySetResult(true);
+                    }
+                    catch (Exception ex)
+                    {
+                        completion.TrySetException(ex);
+                    }
+                },
+                null);
+            return completion.Task;
         }
     }
 }

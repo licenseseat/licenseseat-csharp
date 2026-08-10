@@ -12,8 +12,21 @@ trim_trailing_whitespace = true
 insert_final_newline = true
 
 [*.cs]
-# Prefer file-scoped namespaces
+# Prefer concise namespaces outside the Unity-shared source set.
 csharp_style_namespace_declarations = file_scoped:warning
+
+[src/LicenseSeat/**/*.cs]
+# These files are copied into Unity 2021/2022, whose compiler supports C# 9.
+csharp_style_namespace_declarations = block_scoped:warning
+
+[src/LicenseSeat/*.cs]
+csharp_style_namespace_declarations = block_scoped:warning
+
+[src/LicenseSeat.Unity/Runtime/Core/**/*.cs]
+csharp_style_namespace_declarations = block_scoped:warning
+
+[src/LicenseSeat.Unity/Runtime/Core/*.cs]
+csharp_style_namespace_declarations = block_scoped:warning
 
 # Prefer 'var' when type is apparent
 csharp_style_var_when_type_is_apparent = true:suggestion

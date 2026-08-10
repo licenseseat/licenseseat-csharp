@@ -2,6 +2,55 @@
 
 All notable changes to the LicenseSeat C# SDK will be documented in this file.
 
+## [0.5.0] - 2026-08-10
+
+### Security
+
+- Moved license keys out of lifecycle request URLs and into bounded JSON request
+  bodies on the product-scoped API routes.
+- Restricted authenticated traffic to the configured HTTPS origin and API base
+  path. Redirects, cookies, unsafe header overrides, ambiguous URLs, and
+  oversized or malformed request/response bodies are rejected.
+- Made authoritative HTTP responses ineligible for offline fallback, including
+  HTTP 408 and all 4xx/5xx responses.
+- Added strict bounded JSON and UTF-8 handling, duplicate-property rejection,
+  identifier and timestamp validation, and exact response binding to the
+  requested license, product, device, activation, and status.
+- Hardened signed offline authorization across canonical payload equality,
+  Ed25519 signature/key encoding, key identity, license/product/device claims,
+  entitlement bounds, time ordering, local grace policy, and clock rollback.
+- Added cancellation and generation checks so stale lifecycle or background work
+  cannot restore authority after deactivation, reset, disposal, or a newer
+  result.
+- Added defensive cache copies, bounded telemetry and diagnostic redaction, and
+  pinned/verified dependency inputs for the Unity distribution.
+
+### Changed
+
+- Product scope is configured once through
+  `LicenseSeatClientOptions.ProductSlug`; the serialized `ProductId` property is
+  retained only as an obsolete compatibility alias.
+- Removed the public caller-supplied `HttpClient` constructor. Custom transports
+  remain available through the explicit adapter boundary, where the caller owns
+  equivalent pre-redirect credential protections.
+- The built-in license/offline cache is explicitly memory-only and does not grant
+  authority across process restarts.
+- `MaxOfflineDays = 0` consistently disables offline authority instead of acting
+  as an unlimited window.
+- Unity now requires the .NET Standard 2.1 profile; its transport applies the
+  same origin, redirect, credential, content, and size policy as the core SDK.
+- Updated System.Text.Json to 10.0.10 and BouncyCastle.Cryptography to 2.6.2.
+
+### Testing
+
+- Added adversarial coverage for URL/origin confusion, redirects, response
+  framing and limits, strict JSON, identity mismatches, cancellation, disposal,
+  time bounds, offline signature substitution, cache isolation, and secret
+  redaction.
+- Added deterministic NuGet validation, Unity/core synchronization checks,
+  compatibility builds, enforced coverage floors, vulnerability scanning, and
+  a trusted-publishing release pipeline.
+
 ## [0.4.0] - 2026-02-09
 
 ### Added

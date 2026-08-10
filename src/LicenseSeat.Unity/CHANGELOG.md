@@ -5,6 +5,48 @@ All notable changes to the LicenseSeat Unity SDK will be documented in this file
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-08-10
+
+### Security
+
+- Moved license keys out of request URLs and into bounded JSON request bodies.
+- Restricted credentials to the configured HTTPS origin and API base path;
+  redirects, cookies, and oversized or malformed responses are rejected.
+- Removed the public caller-supplied `HttpClient` constructor because an opaque
+  auto-redirect handler can forward a bearer credential before post-response
+  redirect checks run; custom transports remain an explicit adapter trust boundary.
+- Made authoritative HTTP responses ineligible for offline fallback, including
+  HTTP 408 and all 4xx/5xx responses.
+- Made signed offline validation fail closed and bound signed claims to the
+  license key, product slug, device fingerprint, key identifier, and timestamps.
+- Added strict JSON, UTF-8, identifier, URL, and response-schema validation.
+- Added lifecycle cancellation, non-overlapping background work, defensive cache
+  copies, bounded telemetry, and secret-safe diagnostic logging.
+- Replaced the Unity transport with a bounded UnityWebRequest implementation that
+  applies the same origin, path, credential, redirect, content, and size policy.
+- Bundled pinned managed dependencies from signature-verified NuGet packages with
+  explicit assembly references, SHA-256 hashes, and redistribution notices.
+
+### Changed
+
+- Product scope is now configured once through
+  `LicenseSeatClientOptions.ProductSlug`; the serialized `ProductId` field remains
+  only as an obsolete compatibility alias.
+- The built-in license and offline-token cache is explicitly memory-only.
+- Unity device binding now hashes `SystemInfo.deviceUniqueIdentifier` when the
+  platform exposes a usable value, with the core process fingerprint as fallback.
+- The legacy serialized `ValidateOnStart` flag is retained for asset compatibility
+  but hidden because there is no persisted license to validate after a restart.
+- Updated the package and documentation to require Unity's .NET Standard 2.1
+  profile and to distinguish target compatibility from tested build coverage.
+- Updated System.Text.Json to 10.0.10 and BouncyCastle.Cryptography to 2.6.2.
+
+### Testing
+
+- Added adversarial tests for URL confusion, redirects, response limits,
+  malformed payloads, identity mismatches, cancellation, disposal, time bounds,
+  offline signature verification, and secret redaction.
+
 ## [0.3.0] - 2026-01-22
 
 ### Breaking Changes
@@ -18,7 +60,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `active_activations_count` → `active_seats`
   - `reason_code` → `code`
   - `reason` → `message`
-- **URL Structure**: All endpoints now use product-scoped URLs (`/api/v1/products/{slug}/licenses/{key}/...`)
+- **URL Structure**: Product-scoped endpoints were introduced. License keys are
+  sent in request bodies as of 0.5.0.
 - **Underscore URLs**: API endpoints use underscores (`/offline_token`, `/signing_keys/`) instead of hyphens
 
 ### Added
@@ -38,9 +81,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Initial release of LicenseSeat Unity SDK
-- Pure C# implementation with no native dependencies
-- Support for all Unity platforms (Windows, macOS, Linux, Android, iOS, WebGL)
-- IL2CPP compatibility with comprehensive `link.xml`
+- Managed C# implementation with no native libraries
+- Target support for Windows, macOS, Linux, Android, iOS, and WebGL
+- IL2CPP preservation metadata in `link.xml`
 - `LicenseSeatLinkerProcessor` - automatic link.xml injection for UPM packages via `IUnityLinkerProcessor`
 - `UnityWebRequestAdapter` for WebGL and cross-platform HTTP
 - `LicenseSeatManager` MonoBehaviour for easy integration
@@ -64,5 +107,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Removed non-existent `ProductId` from `ToClientOptions()` (API uses `product_slug` per-call)
+- Began migration away from the legacy `ProductId` naming
 - Enhanced `link.xml` with all model types for IL2CPP compatibility

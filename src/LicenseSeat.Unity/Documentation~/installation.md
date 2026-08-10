@@ -6,7 +6,7 @@ This guide covers all methods for installing the LicenseSeat Unity SDK.
 
 - **Unity Version**: 2021.3 LTS or newer (recommended: 2022.3 LTS or Unity 6)
 - **Scripting Backend**: Mono or IL2CPP
-- **API Compatibility Level**: .NET Standard 2.0 or .NET 4.x
+- **API Compatibility Level**: .NET Standard 2.1
 
 ## Installation Methods
 
@@ -30,7 +30,7 @@ https://github.com/licenseseat/licenseseat-csharp.git?path=src/LicenseSeat.Unity
 To lock to a specific version, append the version tag:
 
 ```
-https://github.com/licenseseat/licenseseat-csharp.git?path=src/LicenseSeat.Unity#v0.2.0
+https://github.com/licenseseat/licenseseat-csharp.git?path=src/LicenseSeat.Unity#v0.4.0
 ```
 
 ### Method 2: manifest.json
@@ -65,7 +65,7 @@ Or add the scoped registry to your `manifest.json`:
     }
   ],
   "dependencies": {
-    "com.licenseseat.sdk": "0.2.0"
+    "com.licenseseat.sdk": "0.4.0"
   }
 }
 ```
@@ -96,7 +96,9 @@ After installation:
 1. **Create Settings Asset**
    - Right-click in Project window
    - Select **Create > LicenseSeat > Settings**
-   - Configure your API key and Product ID
+   - Configure your restricted SDK API key and product slug
+   - Use only a client credential scoped to `licenses:validate`; settings assets
+     are embedded in player builds and are not secret storage
 
 2. **Add to Scene**
    - Create an empty GameObject
@@ -118,7 +120,7 @@ See the [Quick Start Guide](quickstart.md) for next steps.
 Change the version tag in the URL:
 
 ```json
-"com.licenseseat.sdk": "https://github.com/licenseseat/licenseseat-csharp.git?path=src/LicenseSeat.Unity#v0.3.0"
+"com.licenseseat.sdk": "https://github.com/licenseseat/licenseseat-csharp.git?path=src/LicenseSeat.Unity#v0.4.0"
 ```
 
 ## Uninstalling
@@ -140,7 +142,9 @@ Or remove the entry from `Packages/manifest.json`.
 ### "Compilation errors after install"
 
 - Check Unity version compatibility (2021.3+)
-- Ensure API Compatibility Level is set correctly
+- Set API Compatibility Level to .NET Standard 2.1
+- Verify `Runtime/Plugins/DEPENDENCIES.sha256` before diagnosing or replacing
+  any bundled managed assembly
 - Try **Assets > Reimport All**
 
 ### Package doesn't appear in Package Manager

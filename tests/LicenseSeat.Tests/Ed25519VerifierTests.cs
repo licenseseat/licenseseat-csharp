@@ -1,5 +1,6 @@
 using System;
 using System.Text;
+using System.Text.Json;
 using Org.BouncyCastle.Crypto.Generators;
 using Org.BouncyCastle.Crypto.Parameters;
 using Org.BouncyCastle.Crypto.Signers;
@@ -64,6 +65,28 @@ public class Ed25519VerifierTests
         var result = Ed25519Verifier.Verify(publicKey, signature, payload);
 
         Assert.True(result);
+    }
+
+    [Fact]
+    public void VerifyCanonical_RubySignedCrossLanguageFixture_ReturnsTrue()
+    {
+        var path = Path.Combine(
+            AppContext.BaseDirectory,
+            "Fixtures",
+            "ruby_signed_offline_token.json");
+        using var fixture = JsonDocument.Parse(File.ReadAllText(path));
+        var publicKey = fixture.RootElement.GetProperty("public_key").GetString();
+        var envelope = fixture.RootElement.GetProperty("offline_token");
+        var canonical = envelope.GetProperty("canonical").GetString();
+        var signature = envelope.GetProperty("signature").GetProperty("value").GetString();
+        var token = JsonSerializer.Deserialize<OfflineTokenResponse>(envelope.GetRawText());
+
+        Assert.NotNull(publicKey);
+        Assert.NotNull(canonical);
+        Assert.NotNull(signature);
+        Assert.NotNull(token);
+        Assert.Equal("CROSS-LANGUAGE-LICENSE", token!.Token!.LicenseKey);
+        Assert.True(Ed25519Verifier.VerifyCanonical(publicKey!, signature!, canonical!));
     }
 
     [Fact]

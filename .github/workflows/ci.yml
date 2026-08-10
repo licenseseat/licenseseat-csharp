@@ -7,267 +7,293 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
   DOTNET_NOLOGO: true
 
 jobs:
-  # ============================================================
-  # Build and Test
-  # ============================================================
   build:
-    name: Build & Test (${{ matrix.os }}, .NET ${{ matrix.dotnet }})
+    name: Build & Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        dotnet: ['8.0.x', '9.0.x']
-        include:
-          # Also test on .NET 6 (LTS) on Ubuntu only
-          - os: ubuntu-latest
-            dotnet: '6.0.x'
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
-      - name: Setup .NET ${{ matrix.dotnet }}
-        uses: actions/setup-dotnet@v4
+      - name: Setup supported .NET SDKs
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
-          dotnet-version: ${{ matrix.dotnet }}
+          dotnet-version: |
+            9.0.316
+            10.0.302
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
 
-      - name: Restore dependencies
-        run: dotnet restore
+      - name: Restore locked dependencies
+        run: dotnet restore LicenseSeat.sln --locked-mode
 
       - name: Build
-        run: dotnet build --no-restore --configuration Release
+        run: dotnet build LicenseSeat.sln --no-restore --configuration Release
 
       - name: Test
-        run: dotnet test --no-build --configuration Release --verbosity normal --logger "trx;LogFileName=test-results.trx"
+        run: >-
+          dotnet test tests/LicenseSeat.Tests/LicenseSeat.Tests.csproj
+          --no-build
+          --configuration Release
+          --verbosity normal
+          --logger "trx;LogFileName=test-results.trx"
 
       - name: Upload test results
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         if: always()
         with:
-          name: test-results-${{ matrix.os }}-net${{ matrix.dotnet }}
+          name: test-results-${{ matrix.os }}
           path: '**/TestResults/*.trx'
+          if-no-files-found: error
           retention-days: 7
 
-  # ============================================================
-  # Unity Package Sync Validation
-  # ============================================================
-  unity-sync:
-    name: Unity Package Sync
+  csharp-compatibility:
+    name: C# 9 / .NET Standard compatibility (SDK ${{ matrix.sdk }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        sdk: [8.0.423, 9.0.316, 10.0.302]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: ${{ matrix.sdk }}
+          cache: true
+          cache-dependency-path: src/LicenseSeat/packages.lock.json
+
+      - name: Restore locked dependencies
+        run: dotnet restore src/LicenseSeat/LicenseSeat.csproj --locked-mode
+
+      - name: Compile public SDK as C# 9 / .NET Standard 2.0
+        run: >-
+          dotnet build src/LicenseSeat/LicenseSeat.csproj
+          --no-restore
+          --configuration Release
+          --framework netstandard2.0
+          -p:LangVersion=9.0
+
+  unity:
+    name: Unity package static compatibility
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
-      - name: Validate Unity Core files are in sync
+      - name: Setup .NET
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: 10.0.302
+          cache: true
+          cache-dependency-path: tests/LicenseSeat.Unity.Compile/packages.lock.json
+
+      - name: Validate Unity Core sync
         run: ./scripts/validate-unity-sync.sh
 
-  # ============================================================
-  # Unity Package Structure Validation
-  # ============================================================
-  unity-package:
-    name: Unity Package Validation
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Validate Unity package structure for UPM
+      - name: Validate Unity package and vendored dependency integrity
         run: ./scripts/validate-unity-package.sh
 
-      - name: Verify Git URL syntax
-        run: |
-          echo "## Git URL Verification" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+      - name: Restore compatibility harness in locked mode
+        run: dotnet restore tests/LicenseSeat.Unity.Compile/LicenseSeat.Unity.Compile.csproj --locked-mode
 
-          # Check that package.json exists at the expected path
-          if [ -f "src/LicenseSeat.Unity/package.json" ]; then
-            echo "✅ package.json found at expected path" >> $GITHUB_STEP_SUMMARY
+      - name: Compile Unity runtime, editor, samples, and tests with C# 9
+        run: >-
+          dotnet build tests/LicenseSeat.Unity.Compile/LicenseSeat.Unity.Compile.csproj
+          --no-restore
+          --configuration Release
 
-            # Extract and display the installation URL
-            PKG_NAME=$(grep '"name"' src/LicenseSeat.Unity/package.json | head -1 | sed 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
-            PKG_VERSION=$(grep '"version"' src/LicenseSeat.Unity/package.json | head -1 | sed 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
-
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "### Installation URLs" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "**Latest:**" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            echo "https://github.com/${{ github.repository }}.git?path=src/LicenseSeat.Unity" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "**Version $PKG_VERSION:**" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            echo "https://github.com/${{ github.repository }}.git?path=src/LicenseSeat.Unity#v$PKG_VERSION" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-          else
-            echo "❌ package.json NOT found at expected path" >> $GITHUB_STEP_SUMMARY
-            exit 1
-          fi
-
-      - name: Check version consistency
-        run: |
-          # Extract versions from different sources
-          PKG_VERSION=$(grep '"version"' src/LicenseSeat.Unity/package.json | head -1 | sed 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')
-          CHANGELOG_VERSION=$(grep '^\## \[' src/LicenseSeat.Unity/CHANGELOG.md | head -1 | sed 's/.*\[\([0-9.]*\)\].*/\1/')
-
-          echo "package.json version: $PKG_VERSION"
-          echo "CHANGELOG version: $CHANGELOG_VERSION"
-
-          if [ "$PKG_VERSION" = "$CHANGELOG_VERSION" ]; then
-            echo "✅ Versions are consistent"
-          else
-            echo "⚠️ Version mismatch between package.json ($PKG_VERSION) and CHANGELOG ($CHANGELOG_VERSION)"
-          fi
-
-  # ============================================================
-  # Code Quality
-  # ============================================================
   quality:
-    name: Code Quality
+    name: Formatting & analyzers
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
-          dotnet-version: '9.0.x'
+          dotnet-version: 10.0.302
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
 
-      - name: Restore dependencies
-        run: dotnet restore
+      - name: Restore locked dependencies
+        run: dotnet restore LicenseSeat.sln --locked-mode
 
-      - name: Check formatting
-        run: dotnet format --verify-no-changes --verbosity diagnostic
+      - name: Verify formatting
+        run: dotnet format LicenseSeat.sln --no-restore --verify-no-changes --verbosity diagnostic
 
-      - name: Build with analyzers
-        run: dotnet build --configuration Release /p:TreatWarningsAsErrors=true
+      - name: Build with analyzers and warnings as errors
+        run: >-
+          dotnet build LicenseSeat.sln
+          --no-restore
+          --configuration Release
+          -p:TreatWarningsAsErrors=true
 
-  # ============================================================
-  # Package Validation
-  # ============================================================
-  package:
-    name: Package Validation
+  coverage:
+    name: Coverage floor
     runs-on: ubuntu-latest
-    needs: [build, quality]
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
-          dotnet-version: '9.0.x'
+          dotnet-version: |
+            9.0.316
+            10.0.302
+          cache: true
+          cache-dependency-path: |
+            src/LicenseSeat/packages.lock.json
+            tests/LicenseSeat.Tests/packages.lock.json
 
-      - name: Restore dependencies
-        run: dotnet restore
+      - name: Restore locked dependencies
+        run: dotnet restore tests/LicenseSeat.Tests/LicenseSeat.Tests.csproj --locked-mode
 
-      - name: Create NuGet package
-        run: dotnet pack src/LicenseSeat/LicenseSeat.csproj --configuration Release --output ./packages
+      - name: Run tests with branch coverage
+        run: >-
+          dotnet test tests/LicenseSeat.Tests/LicenseSeat.Tests.csproj
+          --configuration Release
+          --no-restore
+          --collect:"XPlat Code Coverage"
+          --results-directory artifacts/coverage
+          --logger "trx;LogFileName=coverage-tests.trx"
 
-      - name: Validate package
+      - name: Enforce coverage floor
+        shell: bash
         run: |
-          # Install nuget package validator
-          dotnet tool install --global dotnet-validate --version 0.0.1-preview.304
-
-          # Validate the package
-          dotnet-validate package local ./packages/*.nupkg || true
-
-      - name: Upload package artifact
-        uses: actions/upload-artifact@v6
-        with:
-          name: nuget-package
-          path: ./packages/*.nupkg
-          retention-days: 7
-
-  # ============================================================
-  # Security Scan
-  # ============================================================
-  security:
-    name: Security Scan
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '9.0.x'
-
-      - name: Restore dependencies
-        run: dotnet restore
-
-      - name: Run security scan
-        run: |
-          dotnet list package --vulnerable --include-transitive 2>&1 | tee security-report.txt
-
-          # Check for critical/high vulnerabilities
-          if grep -q "Critical\|High" security-report.txt; then
-            echo "::error::Critical or high severity vulnerabilities found"
+          mapfile -t reports < <(find artifacts/coverage -mindepth 2 -maxdepth 2 -name coverage.cobertura.xml -type f)
+          if [ "${#reports[@]}" -ne 1 ]; then
+            echo "::error::Expected exactly one Cobertura report; found ${#reports[@]}"
             exit 1
           fi
+          ./scripts/check-coverage.py "${reports[0]}" --minimum-lines 80 --minimum-branches 70
 
-      - name: Upload security report
-        uses: actions/upload-artifact@v6
+      - name: Upload coverage evidence
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         if: always()
         with:
-          name: security-report
-          path: security-report.txt
+          name: coverage-report
+          path: artifacts/coverage
+          if-no-files-found: error
+          retention-days: 14
+
+  package:
+    name: NuGet package validation
+    runs-on: ubuntu-latest
+    needs: [build, csharp-compatibility, unity, quality, coverage]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: 10.0.302
+          cache: true
+          cache-dependency-path: src/LicenseSeat/packages.lock.json
+
+      - name: Restore locked dependencies
+        run: dotnet restore src/LicenseSeat/LicenseSeat.csproj --locked-mode
+
+      - name: Create package with SDK validation enabled
+        run: >-
+          dotnet pack src/LicenseSeat/LicenseSeat.csproj
+          --configuration Release
+          --no-restore
+          --output artifacts/packages
+
+      - name: Validate exact package contents and provenance metadata
+        shell: bash
+        run: |
+          version=$(sed -n 's:.*<Version>\([^<]*\)</Version>.*:\1:p' src/LicenseSeat/LicenseSeat.csproj | head -1)
+          ./scripts/validate-nuget-package.py "artifacts/packages/LicenseSeat.${version}.nupkg" --version "$version"
+          size=$(wc -c < "artifacts/packages/LicenseSeat.${version}.nupkg")
+          if [ "$size" -gt 2097152 ]; then
+            echo "::error::NuGet package exceeds 2 MiB"
+            exit 1
+          fi
+
+      - name: Upload package artifacts
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: nuget-package
+          path: |
+            artifacts/packages/*.nupkg
+            artifacts/packages/*.snupkg
+          if-no-files-found: error
           retention-days: 7
 
-  # ============================================================
-  # .NET Standard 2.0 Compatibility Check
-  # ============================================================
-  netstandard-compat:
-    name: .NET Standard 2.0 Compatibility
+  security:
+    name: Dependency vulnerability audit
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
-          dotnet-version: '9.0.x'
+          dotnet-version: 10.0.302
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
 
-      - name: Install API compatibility tool
-        run: dotnet tool install --global Microsoft.DotNet.ApiCompat.Tool
+      - name: Restore locked dependencies with NuGet audit enabled
+        run: dotnet restore LicenseSeat.sln --locked-mode
 
-      - name: Restore and build
+      - name: Fail on any known direct or transitive vulnerability
+        shell: bash
         run: |
-          dotnet restore
-          dotnet build src/LicenseSeat/LicenseSeat.csproj --configuration Release
-
-      - name: Verify .NET Standard 2.0 target
-        run: |
-          # Check that the project targets netstandard2.0
-          if ! grep -q "netstandard2.0" src/LicenseSeat/LicenseSeat.csproj; then
-            echo "::error::Project does not target .NET Standard 2.0"
+          dotnet package list --project LicenseSeat.sln --vulnerable --include-transitive --format json --output-version 1 --no-restore > vulnerability-report.json
+          if ! jq -e '[.projects[]? | .frameworks[]? | (.topLevelPackages[]?, .transitivePackages[]?) | select(((.vulnerabilities // []) | length) > 0)] | length == 0' vulnerability-report.json >/dev/null; then
+            echo "::error::A vulnerable NuGet dependency was detected"
+            jq '.projects[]? | .frameworks[]? | (.topLevelPackages[]?, .transitivePackages[]?) | select(((.vulnerabilities // []) | length) > 0)' vulnerability-report.json
             exit 1
           fi
-          echo "✓ Project targets .NET Standard 2.0"
 
-      - name: Verify no .NET Standard 2.0 incompatible APIs
-        run: |
-          # Build and check for any netstandard2.0 compatibility issues
-          dotnet build src/LicenseSeat/LicenseSeat.csproj -f netstandard2.0 --configuration Release 2>&1 | tee build-output.txt
+      - name: Record deprecated dependency evidence
+        run: >-
+          dotnet package list --project LicenseSeat.sln
+          --deprecated
+          --include-transitive
+          --format json
+          --output-version 1
+          --no-restore
+          > deprecated-report.json
 
-          if grep -q "error" build-output.txt; then
-            echo "::error::.NET Standard 2.0 build failed"
-            exit 1
-          fi
-          echo "✓ .NET Standard 2.0 build successful"
+      - name: Upload audit evidence
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        if: always()
+        with:
+          name: dependency-audit
+          path: |
+            vulnerability-report.json
+            deprecated-report.json
+          if-no-files-found: warn
+          retention-days: 14

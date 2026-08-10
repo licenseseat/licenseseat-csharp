@@ -16,6 +16,8 @@ namespace LicenseSeat.StressTests;
 public static class UserJourneyTest
 {
     // Credentials from environment variables
+    private static readonly string API_URL = Environment.GetEnvironmentVariable("LICENSESEAT_API_URL")
+        ?? LicenseSeatClientOptions.DefaultApiBaseUrl;
     private static readonly string API_KEY = Environment.GetEnvironmentVariable("LICENSESEAT_API_KEY")
         ?? throw new InvalidOperationException("LICENSESEAT_API_KEY environment variable is required");
     private static readonly string PRODUCT_SLUG = Environment.GetEnvironmentVariable("LICENSESEAT_PRODUCT_SLUG")
@@ -56,9 +58,15 @@ public static class UserJourneyTest
             httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {API_KEY}");
             httpClient.DefaultRequestHeaders.Add("Accept", "application/json");
 
-            // Validate to see current activation status
-            var validateResponse = await httpClient.GetAsync(
-                $"https://licenseseat.com/api/v1/products/{PRODUCT_SLUG}/licenses/{LICENSE_KEY}/validate");
+            // Validate to see current activation status. The credential stays in
+            // the request body so it cannot enter proxy/access-log URLs.
+            using var validateContent = new StringContent(
+                JsonSerializer.Serialize(new { license_key = LICENSE_KEY, fingerprint = ComputeDeviceId() }),
+                System.Text.Encoding.UTF8,
+                "application/json");
+            var validateResponse = await httpClient.PostAsync(
+                $"{API_URL.TrimEnd('/')}/products/{Uri.EscapeDataString(PRODUCT_SLUG)}/licenses/validate",
+                validateContent);
 
             if (validateResponse.IsSuccessStatusCode)
             {
@@ -89,12 +97,12 @@ public static class UserJourneyTest
                         try
                         {
                             var deactivateRequest = new StringContent(
-                                JsonSerializer.Serialize(new { device_id = deviceId }),
+                                JsonSerializer.Serialize(new { license_key = LICENSE_KEY, fingerprint = deviceId }),
                                 System.Text.Encoding.UTF8,
                                 "application/json");
 
                             var deactivateResponse = await httpClient.PostAsync(
-                                $"https://licenseseat.com/api/v1/products/{PRODUCT_SLUG}/licenses/{LICENSE_KEY}/deactivate",
+                                $"{API_URL.TrimEnd('/')}/products/{Uri.EscapeDataString(PRODUCT_SLUG)}/licenses/deactivate",
                                 deactivateRequest);
 
                             if (deactivateResponse.IsSuccessStatusCode)
@@ -110,7 +118,7 @@ public static class UserJourneyTest
         catch { /* Ignore cleanup errors */ }
 
         Console.WriteLine();
-        Console.WriteLine($"  License Key: {LICENSE_KEY}");
+        Console.WriteLine("  License Key: configured (redacted)");
         Console.WriteLine($"  Device 1 (Laptop): {DEVICE_1}");
         Console.WriteLine($"  Device 2 (Desktop): {DEVICE_2}");
         Console.WriteLine();
@@ -139,7 +147,7 @@ public static class UserJourneyTest
             Assert(license != null, "Activation should return a license");
             Assert(license!.Status == "active", $"License should be active, got {license.Status}");
             Console.WriteLine($"    ✓ License activated successfully!");
-            Console.WriteLine($"      Key: {license.Key}");
+            Console.WriteLine("      License activated");
             Console.WriteLine($"      Status: {license.Status}");
             Console.WriteLine($"      Plan: {license.PlanKey}");
             Console.WriteLine($"      Seats: {license.ActiveSeats}/{license.SeatLimit}");
@@ -279,12 +287,12 @@ public static class UserJourneyTest
             Console.WriteLine("    ✓ License activated");
 
             // Fetch offline token
-            var requestBody = new { device_id = DEVICE_1 };
+            var requestBody = new { license_key = LICENSE_KEY, fingerprint = DEVICE_1 };
             var json = JsonSerializer.Serialize(requestBody);
             var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
 
             var response = await httpClient.PostAsync(
-                $"https://licenseseat.com/api/v1/products/{PRODUCT_SLUG}/licenses/{LICENSE_KEY}/offline_token",
+                $"{API_URL.TrimEnd('/')}/products/{Uri.EscapeDataString(PRODUCT_SLUG)}/licenses/offline-token",
                 content);
 
             Assert(response.IsSuccessStatusCode, $"Should fetch offline token, got {response.StatusCode}");
@@ -297,14 +305,14 @@ public static class UserJourneyTest
             Assert(!string.IsNullOrEmpty(offlineToken?.Canonical), "Should have canonical JSON");
 
             Console.WriteLine("    ✓ Offline token fetched and cached!");
-            Console.WriteLine($"      License Key: {offlineToken!.Token!.LicenseKey}");
+            Console.WriteLine($"      License binding present: {!string.IsNullOrEmpty(offlineToken!.Token!.LicenseKey)}");
             Console.WriteLine($"      Expires: {DateTimeOffset.FromUnixTimeSeconds(offlineToken.Token.Exp)}");
             Console.WriteLine($"      Valid for: {(offlineToken.Token.Exp - DateTimeOffset.UtcNow.ToUnixTimeSeconds()) / 86400:F1} days");
             Console.WriteLine($"      Signed by: {offlineToken.Token.Kid}");
 
             // Verify signature
             var sigKeyResponse = await httpClient.GetAsync(
-                $"https://licenseseat.com/api/v1/signing_keys/{offlineToken.Signature!.KeyId}");
+                $"{API_URL.TrimEnd('/')}/signing_keys/{Uri.EscapeDataString(offlineToken.Signature!.KeyId!)}");
             var sigKeyBody = await sigKeyResponse.Content.ReadAsStringAsync();
             var sigKey = JsonSerializer.Deserialize<SigningKeyResponse>(sigKeyBody,
                 new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
@@ -346,7 +354,7 @@ public static class UserJourneyTest
             // Activate while online
             Console.WriteLine("    🌐 While online: Activating license...");
             var license = await client.ActivateAsync(LICENSE_KEY);
-            Console.WriteLine($"    ✓ Activated: {license.Key}");
+            Console.WriteLine("    ✓ Activated");
 
             // Validate while online
             var onlineResult = await client.ValidateAsync(LICENSE_KEY);
@@ -363,7 +371,7 @@ public static class UserJourneyTest
             // For this simulation, we'll check the cached state
             var cachedLicense = client.GetCurrentLicense();
             Assert(cachedLicense != null, "Should have cached license");
-            Console.WriteLine($"    ✓ Cached license available: {cachedLicense!.Key}");
+            Console.WriteLine("    ✓ Cached license available");
 
             var status = client.GetStatus();
             Console.WriteLine($"    ✓ App status: {status.StatusType}");
@@ -394,19 +402,19 @@ public static class UserJourneyTest
             using var client = CreateClient(DEVICE_1);
             await client.ActivateAsync(LICENSE_KEY);
 
-            var requestBody = new { device_id = DEVICE_1 };
+            var requestBody = new { license_key = LICENSE_KEY, fingerprint = DEVICE_1 };
             var json = JsonSerializer.Serialize(requestBody);
             var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
 
             var response = await httpClient.PostAsync(
-                $"https://licenseseat.com/api/v1/products/{PRODUCT_SLUG}/licenses/{LICENSE_KEY}/offline_token",
+                $"{API_URL.TrimEnd('/')}/products/{Uri.EscapeDataString(PRODUCT_SLUG)}/licenses/offline-token",
                 content);
             var responseBody = await response.Content.ReadAsStringAsync();
             var offlineToken = JsonSerializer.Deserialize<OfflineTokenResponse>(responseBody);
 
             // Get public key
             var sigKeyResponse = await httpClient.GetAsync(
-                $"https://licenseseat.com/api/v1/signing_keys/{offlineToken!.Signature!.KeyId}");
+                $"{API_URL.TrimEnd('/')}/signing_keys/{Uri.EscapeDataString(offlineToken!.Signature!.KeyId!)}");
             var sigKeyBody = await sigKeyResponse.Content.ReadAsStringAsync();
             var sigKey = JsonSerializer.Deserialize<SigningKeyResponse>(sigKeyBody,
                 new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
@@ -488,12 +496,12 @@ public static class UserJourneyTest
             using var client = CreateClient(DEVICE_1);
             await client.ActivateAsync(LICENSE_KEY);
 
-            var requestBody = new { device_id = DEVICE_1 };
+            var requestBody = new { license_key = LICENSE_KEY, fingerprint = DEVICE_1 };
             var json = JsonSerializer.Serialize(requestBody);
             var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
 
             var response = await httpClient.PostAsync(
-                $"https://licenseseat.com/api/v1/products/{PRODUCT_SLUG}/licenses/{LICENSE_KEY}/offline_token",
+                $"{API_URL.TrimEnd('/')}/products/{Uri.EscapeDataString(PRODUCT_SLUG)}/licenses/offline-token",
                 content);
             var responseBody = await response.Content.ReadAsStringAsync();
             var offlineToken = JsonSerializer.Deserialize<OfflineTokenResponse>(responseBody);
@@ -546,12 +554,12 @@ public static class UserJourneyTest
             using var client = CreateClient(DEVICE_1);
             await client.ActivateAsync(LICENSE_KEY);
 
-            var requestBody = new { device_id = DEVICE_1 };
+            var requestBody = new { license_key = LICENSE_KEY, fingerprint = DEVICE_1 };
             var json = JsonSerializer.Serialize(requestBody);
             var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
 
             var response = await httpClient.PostAsync(
-                $"https://licenseseat.com/api/v1/products/{PRODUCT_SLUG}/licenses/{LICENSE_KEY}/offline_token",
+                $"{API_URL.TrimEnd('/')}/products/{Uri.EscapeDataString(PRODUCT_SLUG)}/licenses/offline-token",
                 content);
             var responseBody = await response.Content.ReadAsStringAsync();
             var offlineToken = JsonSerializer.Deserialize<OfflineTokenResponse>(responseBody);
@@ -592,7 +600,7 @@ public static class UserJourneyTest
             {
                 Console.WriteLine("    🔑 Activating on old laptop...");
                 var license = await oldLaptop.ActivateAsync(LICENSE_KEY);
-                Console.WriteLine($"    ✓ Activated on laptop: {license.Key}");
+                Console.WriteLine("    ✓ Activated on laptop");
                 Console.WriteLine($"      Seats used: {license.ActiveSeats}/{license.SeatLimit}");
 
                 // Deactivate to free up seat
@@ -609,7 +617,7 @@ public static class UserJourneyTest
             {
                 Console.WriteLine("    🔑 Activating on new desktop...");
                 var license = await newDesktop.ActivateAsync(LICENSE_KEY);
-                Console.WriteLine($"    ✓ Activated on desktop: {license.Key}");
+                Console.WriteLine("    ✓ Activated on desktop");
                 Console.WriteLine($"      Seats used: {license.ActiveSeats}/{license.SeatLimit}");
 
                 // Verify it works
@@ -651,7 +659,7 @@ public static class UserJourneyTest
                 catch (ApiException ex) when (ex.Code == "seat_limit_exceeded")
                 {
                     Console.WriteLine($"    🛡️ BLOCKED: {ex.Code}");
-                    Console.WriteLine($"       Message: {ex.Message}");
+                    Console.WriteLine($"       Error: {DescribeError(ex)}");
                     Console.WriteLine();
                     Console.WriteLine("    💡 User needs to:");
                     Console.WriteLine("       - Deactivate from another device, OR");
@@ -690,7 +698,7 @@ public static class UserJourneyTest
             {
                 Console.WriteLine();
                 Console.WriteLine($"    ❌ Error: {ex.Code}");
-                Console.WriteLine($"       Message: {ex.Message}");
+                Console.WriteLine($"       Error: {DescribeError(ex)}");
                 Console.WriteLine($"       Status: {ex.StatusCode}");
                 Console.WriteLine();
                 Console.WriteLine("    💡 User sees: \"License key not found. Please check and try again.\"");
@@ -726,7 +734,7 @@ public static class UserJourneyTest
             catch (ApiException ex)
             {
                 Console.WriteLine($"    🛡️ BLOCKED: {ex.Code}");
-                Console.WriteLine($"       Message: {ex.Message}");
+                Console.WriteLine($"       Error: {DescribeError(ex)}");
                 Console.WriteLine($"       Status: {ex.StatusCode}");
                 Console.WriteLine();
                 Console.WriteLine("    ✓ Cannot use license with wrong product!");
@@ -760,7 +768,7 @@ public static class UserJourneyTest
             catch (ApiException ex)
             {
                 Console.WriteLine($"    🛡️ BLOCKED: {ex.Code}");
-                Console.WriteLine($"       Message: {ex.Message}");
+                Console.WriteLine($"       Error: {DescribeError(ex)}");
                 Console.WriteLine($"       Status: {ex.StatusCode}");
                 Console.WriteLine();
                 Console.WriteLine("    ✓ Cannot access API with invalid credentials!");
@@ -944,9 +952,9 @@ public static class UserJourneyTest
         {
             sw.Stop();
             _failedCount++;
-            _failures.Add($"{name}: {ex.Message}");
+            _failures.Add($"{name}: {DescribeError(ex)}");
             Console.WriteLine();
-            Console.WriteLine($"  ❌ FAILED: {ex.Message}");
+            Console.WriteLine($"  ❌ FAILED: {DescribeError(ex)}");
             Console.WriteLine($"     {ex.GetType().Name}");
         }
         Console.WriteLine();
@@ -958,6 +966,13 @@ public static class UserJourneyTest
         {
             throw new Exception($"Assertion failed: {message}");
         }
+    }
+
+    private static string DescribeError(Exception error)
+    {
+        return error is ApiException apiError
+            ? $"API request failed (status {apiError.StatusCode}, code {apiError.Code ?? "unknown"})"
+            : error.GetType().Name;
     }
 
     /// <summary>

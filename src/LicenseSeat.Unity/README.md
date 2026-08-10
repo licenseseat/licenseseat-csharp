@@ -1,169 +1,136 @@
 # LicenseSeat Unity SDK
 
-Pure C# licensing SDK for Unity game developers. Provides seamless license activation, validation, and entitlement checking across **all Unity platforms** including WebGL, iOS, and Android.
+Managed C# licensing SDK for Unity. It provides license activation, validation,
+entitlement checks, and signed offline fallback through UnityWebRequest.
 
-## Features
+## Compatibility and security notes
 
-- **Pure C# Implementation** - No native DLLs or platform-specific binaries
-- **Works on ALL Platforms** - Windows, macOS, Linux, Android, iOS, WebGL
-- **IL2CPP Compatible** - Full AOT compilation support for mobile and WebGL
-- **Unity-Native** - ScriptableObject configuration, MonoBehaviour integration
-- **Offline Support** - Validate licenses even without internet connectivity
-- **Event-Driven** - Subscribe to license events for reactive UI updates
+- Targets Unity 2021.3 or newer with the .NET Standard 2.1 API profile.
+- Contains no native libraries. Its pinned managed JSON and cryptography
+  dependencies are bundled in `Runtime/Plugins`; their versions, source,
+  notices, and SHA-256 hashes are recorded alongside the binaries.
+- Includes linker preservation metadata for Mono and IL2CPP. Every release must
+  still be qualified in real Unity Editor and player builds for each supported
+  platform and scripting backend.
+- A settings asset embedded in a player can be inspected by an attacker. Put
+  only a restricted LicenseSeat SDK credential with the `licenses:validate`
+  scope in a client build—never an administrator or server credential.
+- License keys are secrets. Do not write them to logs, analytics, crash reports,
+  PlayerPrefs, or other plaintext storage.
+- The built-in cache is memory-only. Signed offline fallback can cover a network
+  outage after an online operation in the same process, but it does not survive
+  an application restart. The SDK intentionally does not persist sensitive
+  licensing state in PlayerPrefs.
 
 ## Installation
 
-### Via Git URL (Recommended)
-
-Add to your `manifest.json`:
+Pin a reviewed release or commit in production. To install from a Git tag, add
+the package to `Packages/manifest.json`:
 
 ```json
 {
   "dependencies": {
-    "com.licenseseat.sdk": "https://github.com/licenseseat/licenseseat-csharp.git?path=src/LicenseSeat.Unity"
+    "com.licenseseat.sdk": "https://github.com/licenseseat/licenseseat-csharp.git?path=src/LicenseSeat.Unity#v0.5.0"
   }
 }
 ```
 
-Or use Unity Package Manager:
-1. Open Window > Package Manager
-2. Click the + button > Add package from git URL
-3. Enter: `https://github.com/licenseseat/licenseseat-csharp.git?path=src/LicenseSeat.Unity`
+Or select **Window > Package Manager > + > Add package from git URL** and enter
+the same URL. If the package is published in your OpenUPM registry, it can also
+be installed with `openupm add com.licenseseat.sdk`.
 
-### Via OpenUPM
+## Quick start
 
-```bash
-openupm add com.licenseseat.sdk
-```
-
-## Quick Start
-
-### 1. Create Settings Asset
-
-Right-click in Project window > Create > LicenseSeat > Settings
-
-Configure your API key in the created asset.
-
-### 2. Add LicenseSeatManager to Scene
-
-Add the `LicenseSeatManager` component to a GameObject in your scene.
-
-### 3. Activate & Validate Licenses
+1. Select **Create > LicenseSeat > Settings** in the Project window.
+2. Configure the restricted SDK credential and product slug.
+3. Add `LicenseSeatManager` to a GameObject and assign the settings asset.
+4. Activate and validate through the manager:
 
 ```csharp
+using System;
 using LicenseSeat;
 using UnityEngine;
 
-public class LicenseController : MonoBehaviour
+public sealed class LicenseController : MonoBehaviour
 {
-    private LicenseSeatManager _manager;
+    [SerializeField] private LicenseSeatManager manager;
 
-    void Start()
+    public void Activate(string licenseKey)
     {
-        _manager = FindObjectOfType<LicenseSeatManager>();
-
-        // Subscribe to events
-        _manager.Client.Events.On(LicenseSeatEvents.ActivationSuccess, OnActivationSuccess);
-        _manager.Client.Events.On(LicenseSeatEvents.ValidationFailed, OnValidationFailed);
+        StartCoroutine(manager.ActivateCoroutine(licenseKey, OnActivated));
     }
 
-    public void ActivateLicense(string licenseKey)
-    {
-        // Using coroutine
-        StartCoroutine(_manager.ActivateCoroutine(licenseKey, OnActivationComplete));
-    }
-
-    private void OnActivationComplete(License license, Exception error)
+    private void OnActivated(License license, Exception error)
     {
         if (error != null)
         {
-            Debug.LogError($"Activation failed: {error.Message}");
+            Debug.LogError("License activation failed.");
             return;
         }
 
-        Debug.Log($"License activated: {license.LicenseKey}");
+        // Never log license.Key.
+        Debug.Log("License activated.");
     }
-
-    private void OnActivationSuccess(object data) => Debug.Log("License activated!");
-    private void OnValidationFailed(object data) => Debug.LogWarning("Validation failed");
 }
 ```
 
-### 4. Check Entitlements
+Check entitlements only after successful validation:
 
 ```csharp
-// Check if user has a specific feature
-if (_manager.Client.HasEntitlement("premium-features"))
+if (manager.Client.HasEntitlement("premium-features"))
 {
-    // Enable premium features
-}
-
-// Get detailed entitlement info
-var status = _manager.Client.CheckEntitlement("max-projects");
-if (status.Active)
-{
-    Debug.Log($"Projects limit: {status.Limit}");
+    EnablePremiumFeatures();
 }
 ```
 
-## Platform-Specific Notes
+## Offline fallback
 
-### WebGL
+Offline authorization is fail-closed and accepts only a signed token bound to
+the requested license, product, and device. It is attempted only for a genuine
+transport failure; an HTTP response from the service—including 4xx, 5xx, and
+408—remains authoritative.
 
-The SDK automatically uses `UnityWebRequest` for HTTP operations on WebGL, as `System.Net.Http` is not supported. Ensure your API server has proper CORS headers configured.
-
-### iOS & Android (IL2CPP)
-
-The included `link.xml` prevents code stripping. If you encounter issues, ensure the file is in your project.
-
-### Offline Validation
-
-Enable offline fallback for games that may run without internet:
+Configure it in the settings asset, or directly:
 
 ```csharp
-var options = new LicenseSeatClientOptions
+var options = new LicenseSeatClientOptions("restricted-sdk-key", "product-slug")
 {
-    ApiKey = "your-api-key",
     OfflineFallbackMode = OfflineFallbackMode.NetworkOnly,
     MaxOfflineDays = 7
 };
 ```
 
-## Development Notes
+`OfflineFallbackMode.Always` is retained as a compatibility alias for
+`NetworkOnly`; it does not override server denials or local security failures.
 
-### Code Sharing with Core SDK
+## WebGL and CORS
 
-The Unity package contains copies of the core C# SDK source files in `Runtime/Core/`. These files are kept in sync with the main SDK through:
+The adapter uses UnityWebRequest and enforces HTTPS by default, bounded request
+and response bodies, scoped authorization, strict media types, and no redirects.
+WebGL additionally depends on the browser's CORS policy. Configure only the
+origins and headers your application requires; do not enable credentialed
+wildcard CORS.
 
-1. **CI Validation** - Every PR validates that Unity Core files match the Core SDK
-2. **Sync Scripts** - Developers can run sync scripts after modifying the core SDK
+## Core synchronization
 
-**After modifying the Core SDK**, run:
+The package contains copies of the core C# source under `Runtime/Core`. After a
+core change, run:
+
 ```bash
-# Bash (macOS/Linux)
 ./scripts/sync-unity-core.sh --replace-symlinks
-
-# PowerShell (Windows)
-.\scripts\sync-unity-core.ps1 -ReplaceSymlinks
-```
-
-**To check sync status:**
-```bash
 ./scripts/validate-unity-sync.sh
+./scripts/validate-unity-package.sh
 ```
 
 ## Documentation
 
-- [Installation Guide](Documentation~/installation.md)
-- [Quick Start](Documentation~/quickstart.md)
+- [Installation guide](Documentation~/installation.md)
+- [Quick start](Documentation~/quickstart.md)
 - [Troubleshooting](Documentation~/troubleshooting.md)
-- [Platform Notes](Documentation~/platform-notes.md)
-
-## Support
-
-- Documentation: https://licenseseat.com/docs/sdk/unity
-- Issues: https://github.com/licenseseat/licenseseat-csharp/issues
+- [Platform notes](Documentation~/platform-notes.md)
 
 ## License
 
-MIT License - see LICENSE file for details.
+LicenseSeat is distributed under the MIT License. Bundled dependency notices are
+in `Runtime/Plugins/ThirdPartyNotices.md` and
+`Runtime/Plugins/DOTNET-THIRD-PARTY-NOTICES.txt`.

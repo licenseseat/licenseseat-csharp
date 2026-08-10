@@ -1,3 +1,4 @@
+#nullable enable
 using System;
 using UnityEngine;
 using UnityEngine.UI;
@@ -5,10 +6,10 @@ using UnityEngine.UI;
 namespace LicenseSeat.Unity.Samples
 {
     /// <summary>
-    /// Sample demonstrating offline license validation capabilities.
-    /// Shows how to handle scenarios where the user may not have internet connectivity.
+    /// Demonstrates signed offline fallback without making local authorization
+    /// decisions from reachability or cached license fields.
     /// </summary>
-    public class OfflineLicenseManager : MonoBehaviour
+    public sealed class OfflineLicenseManager : MonoBehaviour
     {
         [Header("References")]
         [SerializeField] private LicenseSeatManager? licenseSeatManager;
@@ -17,11 +18,7 @@ namespace LicenseSeat.Unity.Samples
         [SerializeField] private Text? connectionStatusText;
         [SerializeField] private Text? licenseStatusText;
         [SerializeField] private Text? lastValidatedText;
-        [SerializeField] private Button? forceOfflineButton;
         [SerializeField] private Button? validateButton;
-        [SerializeField] private Toggle? simulateOfflineToggle;
-
-        private bool _simulateOffline;
 
         private void Start()
         {
@@ -30,209 +27,110 @@ namespace LicenseSeat.Unity.Samples
                 licenseSeatManager = FindObjectOfType<LicenseSeatManager>();
             }
 
-            if (licenseSeatManager == null)
+            if (licenseSeatManager == null ||
+                !licenseSeatManager.IsInitialized ||
+                licenseSeatManager.Client == null)
             {
-                Debug.LogError("[OfflineValidation] LicenseSeatManager not found!");
+                Debug.LogError("[LicenseSeat Sample] LicenseSeatManager is missing or not initialized.");
                 return;
             }
 
-            // Set up UI
-            if (forceOfflineButton != null)
-            {
-                forceOfflineButton.onClick.AddListener(OnForceOfflineValidation);
-            }
+            validateButton?.onClick.AddListener(OnValidateClicked);
+            licenseSeatManager.Client.Events.On(
+                LicenseSeatEvents.ValidationOfflineSuccess,
+                OnOfflineFallbackUsed);
+            licenseSeatManager.Client.Events.On(
+                LicenseSeatEvents.ValidationOfflineFailed,
+                OnOfflineFallbackRejected);
 
-            if (validateButton != null)
-            {
-                validateButton.onClick.AddListener(OnValidateClicked);
-            }
-
-            if (simulateOfflineToggle != null)
-            {
-                simulateOfflineToggle.onValueChanged.AddListener(OnSimulateOfflineChanged);
-            }
-
-            // Subscribe to events
-            licenseSeatManager.Client.Events.On(LicenseSeatEvents.ValidationSuccess, OnLicenseValidated);
-            licenseSeatManager.Client.Events.On(LicenseSeatEvents.ValidationFailed, OnValidationFailed);
-            licenseSeatManager.Client.Events.On(LicenseSeatEvents.ValidationOfflineSuccess, OnOfflineFallbackUsed);
-
-            // Initial status update
-            UpdateStatus();
-
-            // Check connectivity periodically
-            InvokeRepeating(nameof(UpdateConnectionStatus), 0f, 5f);
+            InvokeRepeating(nameof(UpdateConnectionHint), 0f, 5f);
+            SetLicenseStatus("Ready to validate", Color.gray);
         }
 
         private void OnDestroy()
         {
-            if (licenseSeatManager?.Client != null)
+            CancelInvoke(nameof(UpdateConnectionHint));
+            validateButton?.onClick.RemoveListener(OnValidateClicked);
+
+            var client = licenseSeatManager?.Client;
+            if (client != null)
             {
-                licenseSeatManager.Client.Events.Off(LicenseSeatEvents.ValidationSuccess, OnLicenseValidated);
-                licenseSeatManager.Client.Events.Off(LicenseSeatEvents.ValidationFailed, OnValidationFailed);
-                licenseSeatManager.Client.Events.Off(LicenseSeatEvents.ValidationOfflineSuccess, OnOfflineFallbackUsed);
+                client.Events.Off(
+                    LicenseSeatEvents.ValidationOfflineSuccess,
+                    OnOfflineFallbackUsed);
+                client.Events.Off(
+                    LicenseSeatEvents.ValidationOfflineFailed,
+                    OnOfflineFallbackRejected);
             }
         }
 
         private void OnValidateClicked()
         {
-            if (licenseSeatManager?.Client.CurrentLicense == null)
+            var license = licenseSeatManager?.GetCurrentLicense();
+            if (licenseSeatManager == null || license == null)
             {
                 SetLicenseStatus("No license activated", Color.yellow);
                 return;
             }
 
+            validateButton?.onClick.RemoveListener(OnValidateClicked);
             SetLicenseStatus("Validating...", Color.white);
-
-            StartCoroutine(licenseSeatManager.ValidateCoroutine(
-                licenseSeatManager.Client.CurrentLicense.LicenseKey,
-                OnValidationComplete));
-        }
-
-        private void OnForceOfflineValidation()
-        {
-            if (licenseSeatManager == null) return;
-
-            // Attempt offline validation using cached license data
-            var isValid = ValidateOffline();
-
-            if (isValid)
-            {
-                SetLicenseStatus("Offline validation: VALID", Color.green);
-            }
-            else
-            {
-                SetLicenseStatus("Offline validation: INVALID", Color.red);
-            }
-        }
-
-        private bool ValidateOffline()
-        {
-            if (licenseSeatManager?.Client.CurrentLicense == null)
-            {
-                return false;
-            }
-
-            var license = licenseSeatManager.Client.CurrentLicense;
-
-            // Check if license has expired
-            if (license.ExpiresAt.HasValue && license.ExpiresAt.Value < DateTime.UtcNow)
-            {
-                Debug.Log("[OfflineValidation] License has expired");
-                return false;
-            }
-
-            // Check license status
-            if (license.Status != LicenseStatus.Active)
-            {
-                Debug.Log($"[OfflineValidation] License status is {license.Status}");
-                return false;
-            }
-
-            // Check if we're within the allowed offline period
-            // This would typically check against the last online validation timestamp
-            // For this sample, we just check if the license data exists
-
-            Debug.Log("[OfflineValidation] Offline validation passed");
-            return true;
+            StartCoroutine(licenseSeatManager.ValidateCoroutine(license.Key, OnValidationComplete));
         }
 
         private void OnValidationComplete(ValidationResult? result, Exception? error)
         {
-            if (error != null)
+            validateButton?.onClick.AddListener(OnValidateClicked);
+
+            if (error != null || result == null)
             {
-                // Check if it's a network error (offline)
-                if (error.Message.Contains("network") || error.Message.Contains("connection"))
-                {
-                    SetLicenseStatus("Network error - using offline validation", Color.yellow);
-                    OnForceOfflineValidation();
-                }
-                else
-                {
-                    SetLicenseStatus($"Error: {error.Message}", Color.red);
-                }
+                // A transport failure with no valid signed fallback remains an error.
+                SetLicenseStatus("Validation unavailable; access remains disabled", Color.red);
                 return;
             }
 
-            if (result?.Valid == true)
+            if (!result.Valid)
             {
-                SetLicenseStatus("License VALID (online)", Color.green);
-                UpdateLastValidated();
+                SetLicenseStatus(
+                    result.Offline
+                        ? "Signed offline validation rejected the license"
+                        : "The service rejected the license",
+                    Color.red);
+                return;
             }
-            else
+
+            SetLicenseStatus(
+                result.Offline ? "VALID (signed offline fallback)" : "VALID (online)",
+                result.Offline ? Color.yellow : Color.green);
+
+            if (lastValidatedText != null)
             {
-                SetLicenseStatus("License INVALID", Color.red);
-            }
-        }
-
-        private void OnLicenseValidated(object data)
-        {
-            Debug.Log("[OfflineValidation] License validated online");
-            UpdateLastValidated();
-        }
-
-        private void OnValidationFailed(object data)
-        {
-            Debug.LogWarning("[OfflineValidation] Online validation failed");
-        }
-
-        private void OnOfflineFallbackUsed(object data)
-        {
-            Debug.Log("[OfflineValidation] Offline fallback was used");
-            SetLicenseStatus("Using cached license (offline)", Color.yellow);
-        }
-
-        private void OnSimulateOfflineChanged(bool isOffline)
-        {
-            _simulateOffline = isOffline;
-            UpdateConnectionStatus();
-
-            if (isOffline)
-            {
-                Debug.Log("[OfflineValidation] Simulating offline mode");
-            }
-            else
-            {
-                Debug.Log("[OfflineValidation] Online mode restored");
+                lastValidatedText.text = $"Last validated: {DateTimeOffset.Now:HH:mm:ss}";
             }
         }
 
-        private void UpdateConnectionStatus()
+        private void OnOfflineFallbackUsed(object? data)
         {
-            if (connectionStatusText == null) return;
-
-            bool isOnline;
-
-            if (_simulateOffline)
-            {
-                isOnline = false;
-            }
-            else
-            {
-                isOnline = Application.internetReachability != NetworkReachability.NotReachable;
-            }
-
-            connectionStatusText.text = isOnline ? "ONLINE" : "OFFLINE";
-            connectionStatusText.color = isOnline ? Color.green : Color.red;
+            Debug.Log("[LicenseSeat Sample] A signed offline token was accepted.");
         }
 
-        private void UpdateStatus()
+        private void OnOfflineFallbackRejected(object? data)
         {
-            if (licenseSeatManager?.Client.CurrentLicense == null)
-            {
-                SetLicenseStatus("No license", Color.gray);
-            }
-            else
-            {
-                var license = licenseSeatManager.Client.CurrentLicense;
-                SetLicenseStatus($"License: {license.Status}", license.Status == LicenseStatus.Active ? Color.green : Color.yellow);
-            }
+            Debug.LogWarning("[LicenseSeat Sample] Signed offline validation failed closed.");
         }
 
-        private void UpdateLastValidated()
+        private void UpdateConnectionHint()
         {
-            if (lastValidatedText == null) return;
-            lastValidatedText.text = $"Last validated: {DateTime.Now:HH:mm:ss}";
+            if (connectionStatusText == null)
+            {
+                return;
+            }
+
+            var reachable = Application.internetReachability != NetworkReachability.NotReachable;
+            connectionStatusText.text = reachable
+                ? "NETWORK REACHABILITY REPORTED"
+                : "NETWORK NOT REACHABLE";
+            connectionStatusText.color = reachable ? Color.green : Color.yellow;
         }
 
         private void SetLicenseStatus(string message, Color color)
@@ -242,8 +140,6 @@ namespace LicenseSeat.Unity.Samples
                 licenseStatusText.text = message;
                 licenseStatusText.color = color;
             }
-
-            Debug.Log($"[OfflineValidation] {message}");
         }
     }
 }

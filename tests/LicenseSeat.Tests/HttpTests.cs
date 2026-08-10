@@ -110,7 +110,7 @@ public class HttpTests
 
             using var client = new ApiClient(options, mockHttp);
 
-            var request = new ValidationRequest { DeviceId = "device-123" };
+            var request = new ValidationRequest { LicenseKey = "test-key", Fingerprint = "device-123" };
             var result = await client.PostAsync<ValidationRequest, ValidationResult>("/licenses/validate", request);
 
             Assert.True(result.Valid);
@@ -143,7 +143,10 @@ public class HttpTests
             using var client = new ApiClient(options, mockHttp);
 
             var ex = await Assert.ThrowsAsync<ApiException>(
-                () => client.PostAsync<ValidationRequest, ValidationResult>("/test", new ValidationRequest()));
+                () => client.PostAsync<ValidationRequest, ValidationResult>(
+                    "/test",
+                    new ValidationRequest(),
+                    retryable: true));
 
             Assert.Equal(404, ex.StatusCode);
             Assert.Equal("license_not_found", ex.Code);
@@ -161,7 +164,10 @@ public class HttpTests
             using var client = new ApiClient(options, mockHttp);
 
             var ex = await Assert.ThrowsAsync<ApiException>(
-                () => client.PostAsync<ValidationRequest, ValidationResult>("/test", new ValidationRequest()));
+                () => client.PostAsync<ValidationRequest, ValidationResult>(
+                    "/test",
+                    new ValidationRequest(),
+                    retryable: true));
 
             // Should have retried: 1 initial + 2 retries = 3 total
             Assert.Equal(3, mockHttp.PostCallCount);
@@ -186,7 +192,10 @@ public class HttpTests
 
             using var client = new ApiClient(options, mockHttp);
 
-            var result = await client.PostAsync<ValidationRequest, ValidationResult>("/test", new ValidationRequest());
+            var result = await client.PostAsync<ValidationRequest, ValidationResult>(
+                "/test",
+                new ValidationRequest(),
+                retryable: true);
 
             Assert.True(result.Valid);
             Assert.Equal(3, mockHttp.PostCallCount);

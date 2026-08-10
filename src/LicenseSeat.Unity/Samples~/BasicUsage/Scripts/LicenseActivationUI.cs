@@ -1,3 +1,4 @@
+#nullable enable
 using System;
 using UnityEngine;
 using UnityEngine.UI;
@@ -30,9 +31,11 @@ namespace LicenseSeat.Unity.Samples
                 licenseSeatManager = FindObjectOfType<LicenseSeatManager>();
             }
 
-            if (licenseSeatManager == null)
+            if (licenseSeatManager == null ||
+                !licenseSeatManager.IsInitialized ||
+                licenseSeatManager.Client == null)
             {
-                Debug.LogError("[LicenseSeat Sample] LicenseSeatManager not found in scene!");
+                Debug.LogError("[LicenseSeat Sample] LicenseSeatManager is missing or not initialized.");
                 return;
             }
 
@@ -58,11 +61,12 @@ namespace LicenseSeat.Unity.Samples
 
         private void OnDestroy()
         {
-            if (licenseSeatManager?.Client != null)
+            var client = licenseSeatManager?.Client;
+            if (client != null)
             {
-                licenseSeatManager.Client.Events.Off(LicenseSeatEvents.ActivationSuccess, OnLicenseActivated);
-                licenseSeatManager.Client.Events.Off(LicenseSeatEvents.ValidationSuccess, OnLicenseValidated);
-                licenseSeatManager.Client.Events.Off(LicenseSeatEvents.ValidationFailed, OnValidationFailed);
+                client.Events.Off(LicenseSeatEvents.ActivationSuccess, OnLicenseActivated);
+                client.Events.Off(LicenseSeatEvents.ValidationSuccess, OnLicenseValidated);
+                client.Events.Off(LicenseSeatEvents.ValidationFailed, OnValidationFailed);
             }
         }
 
@@ -89,7 +93,7 @@ namespace LicenseSeat.Unity.Samples
         {
             if (licenseSeatManager == null) return;
 
-            var currentLicense = licenseSeatManager.Client.CurrentLicense;
+            var currentLicense = licenseSeatManager.GetCurrentLicense();
             if (currentLicense == null)
             {
                 SetStatus("No license to validate", Color.yellow);
@@ -99,7 +103,7 @@ namespace LicenseSeat.Unity.Samples
             SetStatus("Validating...", Color.white);
             SetButtonsInteractable(false);
 
-            StartCoroutine(licenseSeatManager.ValidateCoroutine(currentLicense.LicenseKey, OnValidationComplete));
+            StartCoroutine(licenseSeatManager.ValidateCoroutine(currentLicense.Key, OnValidationComplete));
         }
 
         private void OnActivationComplete(License? license, Exception? error)
@@ -108,14 +112,14 @@ namespace LicenseSeat.Unity.Samples
 
             if (error != null)
             {
-                SetStatus($"Activation failed: {error.Message}", Color.red);
-                Debug.LogError($"[LicenseSeat Sample] Activation error: {error}");
+                SetStatus("Activation failed", Color.red);
+                Debug.LogError("[LicenseSeat Sample] Activation failed.");
                 return;
             }
 
             if (license != null)
             {
-                SetStatus($"Activated! License: {license.LicenseKey}", Color.green);
+                SetStatus("License activated", Color.green);
                 UpdateUI();
             }
         }
@@ -126,7 +130,7 @@ namespace LicenseSeat.Unity.Samples
 
             if (error != null)
             {
-                SetStatus($"Validation failed: {error.Message}", Color.red);
+                SetStatus("Validation could not be completed", Color.red);
                 return;
             }
 
@@ -140,18 +144,18 @@ namespace LicenseSeat.Unity.Samples
             }
         }
 
-        private void OnLicenseActivated(object data)
+        private void OnLicenseActivated(object? data)
         {
             Debug.Log("[LicenseSeat Sample] License activated event received");
             UpdateUI();
         }
 
-        private void OnLicenseValidated(object data)
+        private void OnLicenseValidated(object? data)
         {
             Debug.Log("[LicenseSeat Sample] License validated event received");
         }
 
-        private void OnValidationFailed(object data)
+        private void OnValidationFailed(object? data)
         {
             Debug.LogWarning("[LicenseSeat Sample] Validation failed event received");
             SetStatus("License validation failed", Color.red);
@@ -159,7 +163,7 @@ namespace LicenseSeat.Unity.Samples
 
         private void UpdateUI()
         {
-            var isLicensed = licenseSeatManager?.Client?.CurrentLicense != null;
+            var isLicensed = licenseSeatManager?.GetCurrentLicense() != null;
 
             if (activationPanel != null)
             {

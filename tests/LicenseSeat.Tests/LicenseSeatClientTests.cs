@@ -35,7 +35,8 @@ public class LicenseSeatClientTests
         ProductSlug = "test-product",
         ApiBaseUrl = "https://api.test.com",
         AutoInitialize = false, // Disable for tests
-        AutoValidateInterval = TimeSpan.Zero // Disable auto-validation for tests
+        AutoValidateInterval = TimeSpan.Zero, // Disable auto-validation for tests
+        DeviceId = "device-123"
     };
 
     [Fact]
@@ -82,22 +83,7 @@ public class LicenseSeatClientTests
             wasCalled = true;
             if (url.Contains("/activate"))
             {
-                return new HttpResponse(200, """
-                    {
-                        "object": "activation",
-                        "id": "123",
-                        "device_id": "device-123",
-                        "license_key": "TEST-KEY",
-                        "activated_at": "2024-01-01T00:00:00Z",
-                        "license": {
-                            "key": "TEST-KEY",
-                            "status": "active",
-                            "plan_key": "pro",
-                            "seat_limit": 5,
-                            "active_seats": 1
-                        }
-                    }
-                """);
+                return new HttpResponse(200, TestResponses.Activation());
             }
             return new HttpResponse(200, "{}");
         });
@@ -110,6 +96,7 @@ public class LicenseSeatClientTests
             ApiBaseUrl = "https://api.test.com",
             AutoInitialize = false,
             AutoValidateInterval = TimeSpan.Zero,
+            DeviceId = "device-123",
             HttpClientAdapter = mockHttp  // <-- Inject via options, not constructor
         };
 
@@ -130,22 +117,7 @@ public class LicenseSeatClientTests
         {
             if (url.Contains("/activate"))
             {
-                return new HttpResponse(200, """
-                    {
-                        "object": "activation",
-                        "id": "123",
-                        "device_id": "device-123",
-                        "license_key": "TEST-KEY",
-                        "activated_at": "2024-01-01T00:00:00Z",
-                        "license": {
-                            "key": "TEST-KEY",
-                            "status": "active",
-                            "plan_key": "pro",
-                            "seat_limit": 5,
-                            "active_seats": 1
-                        }
-                    }
-                """);
+                return new HttpResponse(200, TestResponses.Activation());
             }
             return new HttpResponse(200, "{}");
         });
@@ -175,16 +147,7 @@ public class LicenseSeatClientTests
     {
         var options = CreateOptions();
         var mockHttp = new MockHttpClient();
-        mockHttp.SetupPost((_, _) => new HttpResponse(200, """
-            {
-                "object": "activation",
-                "id": "123",
-                "device_id": "device-123",
-                "license_key": "TEST",
-                "activated_at": "2024-01-01T00:00:00Z",
-                "license": {"key":"TEST","status":"active","active_seats":1}
-            }
-        """));
+        mockHttp.SetupPost((_, _) => new HttpResponse(200, TestResponses.Activation()));
 
         using var client = new LicenseSeatClient(options, mockHttp);
         var startEventReceived = false;
@@ -226,7 +189,7 @@ public class LicenseSeatClientTests
         {
             if (url.Contains("/validate"))
             {
-                return new HttpResponse(200, """{"object":"validation_result","valid":true,"license":{"key":"TEST-KEY","status":"active","active_seats":1}}""");
+                return new HttpResponse(200, TestResponses.ValidValidation());
             }
             return new HttpResponse(200, "{}");
         });
@@ -248,7 +211,7 @@ public class LicenseSeatClientTests
         {
             if (url.Contains("/validate"))
             {
-                return new HttpResponse(200, """{"object":"validation_result","valid":false,"code":"expired","message":"License expired"}""");
+                return new HttpResponse(200, TestResponses.InvalidValidation());
             }
             return new HttpResponse(200, "{}");
         });
@@ -282,20 +245,11 @@ public class LicenseSeatClientTests
         {
             if (url.Contains("/activate"))
             {
-                return new HttpResponse(200, """
-                    {
-                        "object": "activation",
-                        "id": "123",
-                        "device_id": "device-123",
-                        "license_key": "TEST",
-                        "activated_at": "2024-01-01T00:00:00Z",
-                        "license": {"key":"TEST","status":"active","active_seats":1}
-                    }
-                """);
+                return new HttpResponse(200, TestResponses.Activation());
             }
             if (url.Contains("/deactivate"))
             {
-                return new HttpResponse(200, """{"object":"deactivation","activation_id":"123","deactivated_at":"2024-01-01T00:00:00Z"}""");
+                return new HttpResponse(200, TestResponses.Deactivation());
             }
             return new HttpResponse(200, "{}");
         });
@@ -330,16 +284,7 @@ public class LicenseSeatClientTests
     {
         var options = CreateOptions();
         var mockHttp = new MockHttpClient();
-        mockHttp.SetupPost((_, _) => new HttpResponse(200, """
-            {
-                "object": "activation",
-                "id": "123",
-                "device_id": "device-123",
-                "license_key": "TEST",
-                "activated_at": "2024-01-01T00:00:00Z",
-                "license": {"key":"TEST","status":"active","active_seats":1}
-            }
-        """));
+        mockHttp.SetupPost((_, _) => new HttpResponse(200, TestResponses.Activation()));
 
         using var client = new LicenseSeatClient(options, mockHttp);
 
@@ -381,16 +326,7 @@ public class LicenseSeatClientTests
     {
         var options = CreateOptions();
         var mockHttp = new MockHttpClient();
-        mockHttp.SetupPost((_, _) => new HttpResponse(200, """
-            {
-                "object": "activation",
-                "id": "123",
-                "device_id": "device-123",
-                "license_key": "TEST",
-                "activated_at": "2024-01-01T00:00:00Z",
-                "license": {"key":"TEST","status":"active","active_seats":1}
-            }
-        """));
+        mockHttp.SetupPost((_, _) => new HttpResponse(200, TestResponses.Activation()));
 
         using var client = new LicenseSeatClient(options, mockHttp);
         var resetEventReceived = false;
@@ -408,16 +344,14 @@ public class LicenseSeatClientTests
     }
 
     [Fact]
-    public async Task TestAuthAsync_WithNoApiKey_ThrowsConfigurationException()
+    public void Constructor_WithNoApiKey_ThrowsInvalidOperationException()
     {
         var options = CreateOptions();
         options.ApiKey = null;
         var mockHttp = new MockHttpClient();
 
-        using var client = new LicenseSeatClient(options, mockHttp);
-
-        var ex = await Assert.ThrowsAsync<ConfigurationException>(() => client.TestAuthAsync());
-        Assert.Equal(ConfigurationException.MissingApiKeyCode, ex.ErrorCode);
+        var ex = Assert.Throws<InvalidOperationException>(() => new LicenseSeatClient(options, mockHttp));
+        Assert.Contains("ApiKey", ex.Message);
     }
 
     [Fact]
@@ -425,7 +359,7 @@ public class LicenseSeatClientTests
     {
         var options = CreateOptions();
         var mockHttp = new MockHttpClient();
-        mockHttp.SetupGet(_ => new HttpResponse(200, """{"object":"health","status":"healthy"}"""));
+        mockHttp.SetupGet(_ => new HttpResponse(200, TestResponses.Authentication()));
 
         using var client = new LicenseSeatClient(options, mockHttp);
 
@@ -469,6 +403,7 @@ public class LicenseSeatClientTests
     {
         var options = CreateOptions();
         options.OfflineFallbackMode = OfflineFallbackMode.Always;
+        options.MaxOfflineDays = 30;
         options.MaxRetries = 0;
 
         var mockHttp = new MockHttpClient();
@@ -477,16 +412,7 @@ public class LicenseSeatClientTests
         {
             if (url.Contains("/activate"))
             {
-                return new HttpResponse(200, """
-                    {
-                        "object": "activation",
-                        "id": "123",
-                        "device_id": "device-123",
-                        "license_key": "TEST",
-                        "activated_at": "2024-01-01T00:00:00Z",
-                        "license": {"key":"TEST","status":"active","active_seats":1}
-                    }
-                """);
+                return new HttpResponse(200, TestResponses.Activation());
             }
             // Validation fails with network error
             return new HttpResponse(0, "Network error");
@@ -516,21 +442,7 @@ public class LicenseSeatClientTests
         {
             if (url.Contains("/activate"))
             {
-                return new HttpResponse(200, """
-                    {
-                        "object": "activation",
-                        "id": "123",
-                        "device_id": "device-123",
-                        "license_key": "SYNC-TEST-KEY",
-                        "activated_at": "2024-01-01T00:00:00Z",
-                        "license": {
-                            "key": "SYNC-TEST-KEY",
-                            "status": "active",
-                            "plan_key": "pro",
-                            "active_seats": 1
-                        }
-                    }
-                """);
+                return new HttpResponse(200, TestResponses.Activation("SYNC-TEST-KEY"));
             }
             return new HttpResponse(200, "{}");
         });
@@ -553,17 +465,7 @@ public class LicenseSeatClientTests
         {
             if (url.Contains("/validate"))
             {
-                return new HttpResponse(200, """
-                    {
-                        "object": "validation_result",
-                        "valid": true,
-                        "license": {
-                            "key": "SYNC-VALIDATE-KEY",
-                            "status": "active",
-                            "active_seats": 1
-                        }
-                    }
-                """);
+                return new HttpResponse(200, TestResponses.ValidValidation("SYNC-VALIDATE-KEY"));
             }
             return new HttpResponse(200, "{}");
         });
@@ -598,9 +500,9 @@ public class LicenseSeatClientTests
         var mockHttp = new MockHttpClient();
         mockHttp.SetupGet(url =>
         {
-            if (url.Contains("/health"))
+            if (url.Contains("/auth"))
             {
-                return new HttpResponse(200, """{"object": "health", "status": "healthy"}""");
+                return new HttpResponse(200, TestResponses.Authentication());
             }
             return new HttpResponse(200, "{}");
         });
@@ -624,20 +526,7 @@ public class LicenseSeatClientTests
             wasCalled = true;
             if (url.Contains("/activate"))
             {
-                return new HttpResponse(200, """
-                    {
-                        "object": "activation",
-                        "id": "123",
-                        "device_id": "device-123",
-                        "license_key": "TEST",
-                        "activated_at": "2024-01-01T00:00:00Z",
-                        "license": {
-                            "key": "TEST",
-                            "status": "active",
-                            "active_seats": 1
-                        }
-                    }
-                """);
+                return new HttpResponse(200, TestResponses.Activation("TEST"));
             }
             return new HttpResponse(200, "{}");
         });
@@ -649,6 +538,7 @@ public class LicenseSeatClientTests
             ApiBaseUrl = "https://api.test.com",
             AutoInitialize = false,
             AutoValidateInterval = TimeSpan.Zero,
+            DeviceId = "device-123",
             HttpClientAdapter = mockHttp // Use adapter from options
         };
 

@@ -1,3 +1,4 @@
+#nullable enable
 using System.Runtime.CompilerServices;
 
 // Allow test projects to access internal types

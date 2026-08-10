@@ -1,3 +1,4 @@
+#nullable enable
 #if UNITY_5_3_OR_NEWER
 using System;
 using System.Linq;
@@ -86,14 +87,14 @@ namespace LicenseSeat.Unity.Tests.Runtime
         {
             var settings = ScriptableObject.CreateInstance<LicenseSeatSettings>();
             settings.ApiKey = "test-api-key-12345";
-            settings.ProductId = "test-product-xyz";
+            settings.ProductSlug = "test-product-xyz";
             settings.MaxOfflineDays = 30;
             settings.OfflineFallbackMode = OfflineFallbackMode.Always;
             settings.AutoValidateInterval = 600f;
 
             // Verify serialization round-trip
             Assert.That(settings.ApiKey, Is.EqualTo("test-api-key-12345"));
-            Assert.That(settings.ProductId, Is.EqualTo("test-product-xyz"));
+            Assert.That(settings.ProductSlug, Is.EqualTo("test-product-xyz"));
             Assert.That(settings.MaxOfflineDays, Is.EqualTo(30));
             Assert.That(settings.OfflineFallbackMode, Is.EqualTo(OfflineFallbackMode.Always));
             Assert.That(settings.AutoValidateInterval, Is.EqualTo(600f));
@@ -108,7 +109,7 @@ namespace LicenseSeat.Unity.Tests.Runtime
 
             // Verify default URL matches the core SDK constant
             Assert.That(settings.BaseUrl, Is.EqualTo(LicenseSeatClientOptions.DefaultApiBaseUrl));
-            Assert.That(settings.BaseUrl, Is.EqualTo("https://licenseseat.com/api"));
+            Assert.That(settings.BaseUrl, Is.EqualTo("https://licenseseat.com/api/v1"));
 
             UnityEngine.Object.DestroyImmediate(settings);
         }
@@ -118,7 +119,7 @@ namespace LicenseSeat.Unity.Tests.Runtime
         {
             var settings = ScriptableObject.CreateInstance<LicenseSeatSettings>();
             settings.ApiKey = "api-key";
-            settings.ProductId = "product-id";
+            settings.ProductSlug = "product-id";
             settings.MaxOfflineDays = 14;
             settings.OfflineFallbackMode = OfflineFallbackMode.NetworkOnly;
             settings.AutoValidateInterval = 300f;
@@ -127,6 +128,7 @@ namespace LicenseSeat.Unity.Tests.Runtime
             var options = settings.ToClientOptions();
 
             Assert.That(options.ApiKey, Is.EqualTo("api-key"));
+            Assert.That(options.ProductSlug, Is.EqualTo("product-id"));
             Assert.That(options.MaxOfflineDays, Is.EqualTo(14));
             Assert.That(options.OfflineFallbackMode, Is.EqualTo(OfflineFallbackMode.NetworkOnly));
             Assert.That(options.AutoValidateInterval.TotalSeconds, Is.EqualTo(300));
@@ -137,14 +139,15 @@ namespace LicenseSeat.Unity.Tests.Runtime
         }
 
         [Test]
-        public void CreateValidationOptions_SetsProductSlug()
+        public void ProductSlug_ScopesClientOptions()
         {
             var settings = ScriptableObject.CreateInstance<LicenseSeatSettings>();
-            settings.ProductId = "my-product";
+            settings.ApiKey = "api-key";
+            settings.ProductSlug = "my-product";
 
-            var validationOptions = settings.CreateValidationOptions();
+            var options = settings.ToClientOptions();
 
-            Assert.That(validationOptions.ProductSlug, Is.EqualTo("my-product"));
+            Assert.That(options.ProductSlug, Is.EqualTo("my-product"));
 
             UnityEngine.Object.DestroyImmediate(settings);
         }
@@ -154,7 +157,7 @@ namespace LicenseSeat.Unity.Tests.Runtime
         {
             var settings = ScriptableObject.CreateInstance<LicenseSeatSettings>();
             settings.ApiKey = "key";
-            settings.ProductId = "product";
+            settings.ProductSlug = "product";
             settings.BaseUrl = "";
 
             var options = settings.ToClientOptions();
@@ -170,7 +173,7 @@ namespace LicenseSeat.Unity.Tests.Runtime
         {
             var settings = ScriptableObject.CreateInstance<LicenseSeatSettings>();
             settings.ApiKey = "key";
-            settings.ProductId = "product";
+            settings.ProductSlug = "product";
             settings.BaseUrl = "   ";
 
             var options = settings.ToClientOptions();
@@ -192,18 +195,18 @@ namespace LicenseSeat.Unity.Tests.Runtime
             var result = ValidationResult.Failed("License key not found", "license_not_found");
 
             Assert.That(result.Valid, Is.False);
-            Assert.That(result.Reason, Is.EqualTo("License key not found"));
-            Assert.That(result.ReasonCode, Is.EqualTo("license_not_found"));
+            Assert.That(result.Message, Is.EqualTo("License key not found"));
+            Assert.That(result.Code, Is.EqualTo("license_not_found"));
         }
 
         [Test]
         public void ValidationResult_OfflineResult_IsMarkedCorrectly()
         {
-            var result = ValidationResult.OfflineResult(true, reasonCode: "cached");
+            var result = ValidationResult.OfflineResult(true, code: "cached");
 
             Assert.That(result.Valid, Is.True);
             Assert.That(result.Offline, Is.True);
-            Assert.That(result.ReasonCode, Is.EqualTo("cached"));
+            Assert.That(result.Code, Is.EqualTo("cached"));
         }
 
         [Test]
@@ -233,8 +236,6 @@ namespace LicenseSeat.Unity.Tests.Runtime
                 typeof(ValidationResult),
                 typeof(ActivationResult),
                 typeof(Entitlement),
-                typeof(EntitlementStatus),
-                typeof(LicenseStatus),
                 typeof(Product),
                 typeof(ValidationOptions),
                 typeof(ActivationOptions)
@@ -253,14 +254,14 @@ namespace LicenseSeat.Unity.Tests.Runtime
         {
             // Verify JSON serialization attributes are present
             var licenseType = typeof(License);
-            var licenseKeyProperty = licenseType.GetProperty("LicenseKey");
+            var licenseKeyProperty = licenseType.GetProperty("Key");
 
             Assert.That(licenseKeyProperty, Is.Not.Null);
 
             var jsonAttr = licenseKeyProperty?.GetCustomAttributes(
                 typeof(System.Text.Json.Serialization.JsonPropertyNameAttribute), true);
             Assert.That(jsonAttr, Is.Not.Null.And.Not.Empty,
-                "LicenseKey should have JsonPropertyName attribute for serialization");
+                "Key should have JsonPropertyName attribute for serialization");
         }
 
         [Test]
@@ -281,7 +282,7 @@ namespace LicenseSeat.Unity.Tests.Runtime
         {
             var settings = ScriptableObject.CreateInstance<LicenseSeatSettings>();
             settings.ApiKey = "test";
-            settings.ProductId = "test";
+            settings.ProductSlug = "test";
 
             // Should not throw on destroy
             Assert.DoesNotThrow(() => UnityEngine.Object.DestroyImmediate(settings));
@@ -383,33 +384,32 @@ namespace LicenseSeat.Unity.Tests.Runtime
         #region API Compliance Tests
 
         [Test]
-        public void ValidationOptions_HasProductSlug_NotProductId()
+        public void ProductScope_IsClientWide_NotPerValidation()
         {
-            // Verify API compliance - API uses product_slug, not product_id
-            var options = new ValidationOptions();
-            var productSlugProp = typeof(ValidationOptions).GetProperty("ProductSlug");
+            var clientProductSlugProp = typeof(LicenseSeatClientOptions).GetProperty("ProductSlug");
+            var validationProductSlugProp = typeof(ValidationOptions).GetProperty("ProductSlug");
             var productIdProp = typeof(ValidationOptions).GetProperty("ProductId");
 
-            Assert.That(productSlugProp, Is.Not.Null, "ValidationOptions should have ProductSlug");
+            Assert.That(clientProductSlugProp, Is.Not.Null, "Client options should have ProductSlug");
+            Assert.That(validationProductSlugProp, Is.Null, "ValidationOptions should not override client product scope");
             Assert.That(productIdProp, Is.Null, "ValidationOptions should NOT have ProductId");
         }
 
         [Test]
         public void LicenseSeatClientOptions_NoProductId()
         {
-            // Verify LicenseSeatClientOptions doesn't have ProductId
-            // ProductId is a per-validation option, not a client-wide setting
+            // The API uses a client-wide ProductSlug, never a ProductId.
             var productIdProp = typeof(LicenseSeatClientOptions).GetProperty("ProductId");
             Assert.That(productIdProp, Is.Null,
-                "LicenseSeatClientOptions should NOT have ProductId (API uses product_slug per-call)");
+                "LicenseSeatClientOptions should NOT have ProductId");
         }
 
         [Test]
         public void DefaultApiUrl_IsCorrect()
         {
             Assert.That(LicenseSeatClientOptions.DefaultApiBaseUrl,
-                Is.EqualTo("https://licenseseat.com/api"),
-                "Default API URL should be https://licenseseat.com/api");
+                Is.EqualTo("https://licenseseat.com/api/v1"),
+                "Default API URL should include the v1 API scope");
         }
 
         #endregion

@@ -1,0 +1,57 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnableNETAnalyzers>false</EnableNETAnalyzers>
+    <DefineConstants>UNITY_5_3_OR_NEWER;UNITY_2020_1_OR_NEWER;UNITY_EDITOR;UNITY_2019_3_OR_NEWER;UNITY_2019_4_OR_NEWER</DefineConstants>
+    <AssemblyName>LicenseSeat.Unity.Compile</AssemblyName>
+    <!-- Unity populates private [SerializeField] fields outside normal C# flow. -->
+    <NoWarn>$(NoWarn);CS0649</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="../../src/LicenseSeat.Unity/Runtime/**/*.cs" />
+    <Compile Include="../../src/LicenseSeat.Unity/Samples~/**/*.cs" />
+    <Compile Include="../../src/LicenseSeat.Unity/Tests/Runtime/**/*.cs" />
+    <Compile Include="../../src/LicenseSeat.Unity/Editor/**/*.cs" />
+    <Compile Include="../../src/LicenseSeat.Unity/Tests/Editor/**/*.cs" />
+    <Compile Include="UnityRuntimeStubs.cs" />
+    <Compile Include="UnityEditorStubs.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="BouncyCastle.Cryptography">
+      <HintPath>../../src/LicenseSeat.Unity/Runtime/Plugins/BouncyCastle.Cryptography.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Microsoft.Bcl.AsyncInterfaces">
+      <HintPath>../../src/LicenseSeat.Unity/Runtime/Plugins/Microsoft.Bcl.AsyncInterfaces.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="System.IO.Pipelines">
+      <HintPath>../../src/LicenseSeat.Unity/Runtime/Plugins/System.IO.Pipelines.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="System.Runtime.CompilerServices.Unsafe">
+      <HintPath>../../src/LicenseSeat.Unity/Runtime/Plugins/System.Runtime.CompilerServices.Unsafe.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="System.Text.Encodings.Web">
+      <HintPath>../../src/LicenseSeat.Unity/Runtime/Plugins/System.Text.Encodings.Web.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="System.Text.Json">
+      <HintPath>../../src/LicenseSeat.Unity/Runtime/Plugins/System.Text.Json.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Unity 2021's test framework is based on NUnit 3. -->
+    <PackageReference Include="NUnit" Version="3.13.3" PrivateAssets="all" />
+  </ItemGroup>
+</Project>

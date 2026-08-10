@@ -8,7 +8,7 @@
 Official C# SDK for the [LicenseSeat](https://licenseseat.com) licensing platform. Add license validation to your app in minutes.
 
 > [!TIP]
-> **Building a Unity game?** We have a dedicated [Unity SDK](#unity) with full IL2CPP, WebGL, iOS, and Android support. No DLLs. Just install via Unity Package Manager and go!
+> **Building a Unity game?** Use the dedicated [Unity package](#unity). It bundles its pinned managed dependencies for UPM and includes static C# 9/linker compatibility checks. Run real Editor, player, and IL2CPP builds on every Unity/platform combination you ship.
 
 ## Quick Start
 
@@ -39,6 +39,9 @@ if (client.HasEntitlement("pro-features"))
 
 That's it. You're licensed.
 
+> [!IMPORTANT]
+> Use only a restricted client key scoped to `licenses:validate`. Any credential embedded in a desktop, mobile, game, or WebGL build can be extracted; never ship an administrator or server-write key. Treat end-user license keys as secrets as well: keep them out of URLs, logs, crash reports, analytics, and API responses.
+
 ## Features
 
 | Feature                | Description                                     |
@@ -68,7 +71,7 @@ That's it. You're licensed.
 dotnet add package LicenseSeat
 ```
 
-**Requirements:** .NET Standard 2.0+ (.NET Framework 4.6.1+, .NET Core 2.0+, .NET 5+)
+**Requirements:** a runtime implementing .NET Standard 2.0. CI exercises the package on currently supported .NET SDK/runtime lines; validate older .NET Framework hosts in your own target environment before shipping.
 
 ### Unity
 
@@ -102,7 +105,7 @@ openupm add com.licenseseat.sdk
 
 **Pin to a version:**
 ```
-https://github.com/licenseseat/licenseseat-csharp.git?path=src/LicenseSeat.Unity#v0.2.0
+https://github.com/licenseseat/licenseseat-csharp.git?path=src/LicenseSeat.Unity#v0.5.0
 ```
 
 ## Usage Examples
@@ -120,7 +123,7 @@ var client = new LicenseSeatClient(new LicenseSeatClientOptions
 
 // Activate a license (binds to this device)
 var license = await client.ActivateAsync("LICENSE-KEY");
-Console.WriteLine($"Activated: {license.Key}");
+Console.WriteLine("License activated"); // Never log or return the license key.
 Console.WriteLine($"Status: {license.Status}");
 Console.WriteLine($"Plan: {license.PlanKey}");
 
@@ -205,7 +208,7 @@ public class LicenseController : ControllerBase
     public async Task<IActionResult> Activate([FromBody] string licenseKey)
     {
         var license = await _client.ActivateAsync(licenseKey);
-        return Ok(new { license.Key, license.Status });
+        return Ok(new { license.Status });
     }
 
     [HttpGet("status")]
@@ -230,8 +233,8 @@ client.Events.On(LicenseSeatEvents.ValidationFailed, _ =>
 client.Events.On(LicenseSeatEvents.EntitlementChanged, _ =>
     Console.WriteLine("Entitlements updated!"));
 
-client.Events.On(LicenseSeatEvents.LicenseActivated, license =>
-    Console.WriteLine($"Activated: {((License)license).Key}"));
+client.Events.On(LicenseSeatEvents.LicenseActivated, _ =>
+    Console.WriteLine("License activated"));
 
 client.Events.On(LicenseSeatEvents.LicenseDeactivated, _ =>
     Console.WriteLine("License deactivated"));
@@ -263,7 +266,7 @@ if (result.Offline)
 }
 ```
 
-The SDK automatically fetches and caches Ed25519-signed offline tokens after activation. When offline:
+The SDK automatically fetches and caches Ed25519-signed offline tokens after activation. The built-in cache is memory-only: offline state does not survive process restarts. When an online activation in the current process has populated that cache, offline fallback:
 - Validates token signature cryptographically
 - Checks token expiration (`exp` timestamp)
 - Detects clock tampering
@@ -272,6 +275,7 @@ The SDK automatically fetches and caches Ed25519-signed offline tokens after act
 ### Godot 4
 
 ```csharp
+using System.Threading.Tasks;
 using Godot;
 using LicenseSeat;
 
@@ -288,7 +292,7 @@ public partial class LicenseManager : Node
         });
     }
 
-    public async void ValidateLicense(string licenseKey)
+    public async Task ValidateLicenseAsync(string licenseKey)
     {
         var result = await _client.ValidateAsync(licenseKey);
         if (result.Valid)
@@ -303,44 +307,16 @@ public partial class LicenseManager : Node
 
 ### Unity
 
-```csharp
-using UnityEngine;
-using LicenseSeat;
-
-public class LicenseController : MonoBehaviour
-{
-    private LicenseSeatManager _manager;
-
-    void Start()
-    {
-        _manager = FindObjectOfType<LicenseSeatManager>();
-
-        // Subscribe to events
-        _manager.Client.Events.On(LicenseSeatEvents.LicenseValidated, _ =>
-            Debug.Log("License validated!"));
-    }
-
-    public void ActivateLicense(string licenseKey)
-    {
-        StartCoroutine(_manager.ActivateCoroutine(licenseKey, (license, error) =>
-        {
-            if (error != null)
-            {
-                Debug.LogError($"Failed: {error.Message}");
-                return;
-            }
-            Debug.Log($"Activated: {license.Key}");
-        }));
-    }
-}
-```
+Use the maintained examples installed with the UPM package. They avoid logging license keys or raw server errors and bind cancellation to the Unity component lifecycle.
 
 **Unity SDK Features:**
-- **Pure C#** - No native DLLs, works everywhere
-- **IL2CPP Ready** - Automatic link.xml injection
-- **WebGL Support** - Uses UnityWebRequest
+- **Managed implementation** - No native plugin; pinned managed dependencies are bundled
+- **IL2CPP metadata** - A package `link.xml` preserves reflection-sensitive types
+- **WebGL transport** - Uses a bounded, same-origin `UnityWebRequest` adapter
 - **Editor Tools** - Settings window, inspectors
 - **Samples** - Import from Package Manager
+
+The repository's compatibility harness is static validation, not proof of a real Unity/IL2CPP build. Test every Unity LTS and player backend you support before release.
 
 Full Unity docs: [src/LicenseSeat.Unity/README.md](src/LicenseSeat.Unity/README.md)
 
@@ -423,7 +399,8 @@ catch (ApiException ex) when (ex.Code == "seat_limit_exceeded")
 }
 catch (ApiException ex)
 {
-    Console.WriteLine($"API Error: {ex.Code} - {ex.Message}");
+    // Log bounded classifications, not license keys or raw remote messages.
+    Console.WriteLine($"API Error: {ex.Code ?? "unknown"}");
     Console.WriteLine($"Status: {ex.StatusCode}");
     Console.WriteLine($"Retryable: {ex.IsRetryable}");
 }
@@ -488,7 +465,7 @@ The SDK collects device telemetry and sends it with API requests to help you und
 | Field             | Example                        | Description                              |
 | ----------------- | ------------------------------ | ---------------------------------------- |
 | `sdk_name`        | `csharp`                       | SDK identifier (always "csharp")         |
-| `sdk_version`     | `0.4.0`                        | SDK version                              |
+| `sdk_version`     | `0.5.0`                        | SDK version                              |
 | `os_name`         | `Windows`                      | Operating system (Windows, macOS, Linux) |
 | `os_version`      | `10.0.22631.0`                 | Operating system version                 |
 | `platform`        | `native`                       | Runtime platform (`native` or `unity`)   |
@@ -504,7 +481,7 @@ The SDK collects device telemetry and sends it with API requests to help you und
 | `app_version`     | `1.2.0`                        | Your app version (nullable)              |
 | `app_build`       | `42`                           | Your app build (nullable)                |
 
-Nullable fields are omitted from the payload when not available. No personal data, IP addresses, or usage analytics are collected by the SDK itself.
+Nullable fields are omitted when unavailable. Device model is normally the machine name and can be personal or pseudonymous data; assess disclosure/consent requirements for your users, or disable telemetry. The SDK does not add the caller's IP address to this payload, although the API server necessarily observes the connection IP.
 
 **Set your app version** so you can track which versions your users are running:
 
@@ -543,7 +520,7 @@ Full API documentation: [licenseseat.com/docs](https://licenseseat.com/docs)
 
 ### Prerequisites
 
-- .NET SDK 9.0+
+- A supported .NET SDK (CI pins the exact SDK versions in the workflow)
 
 ### Commands
 
@@ -554,8 +531,9 @@ dotnet build
 # Test (unit tests)
 dotnet test
 
-# Test with coverage
-dotnet test --collect:"XPlat Code Coverage"
+# Test with coverage and enforce the repository floor
+dotnet test tests/LicenseSeat.Tests --collect:"XPlat Code Coverage" --results-directory artifacts/coverage
+./scripts/check-coverage.py "$(find artifacts/coverage -mindepth 2 -maxdepth 2 -name coverage.cobertura.xml -type f -print -quit)" --minimum-lines 80 --minimum-branches 70
 
 # Package
 dotnet pack --configuration Release --output ./artifacts
@@ -563,7 +541,7 @@ dotnet pack --configuration Release --output ./artifacts
 
 ### Testing
 
-The SDK has two test suites:
+The SDK has unit tests, live stress tools, and a static Unity compilation harness:
 
 #### Unit Tests
 
@@ -623,6 +601,7 @@ dotnet run --project tests/StressTest
 ```
 
 > **Note:** Integration tests require a valid LicenseSeat account and license. Tests may fail if the license seat limit is reached.
+> Use dedicated, revocable test credentials. The tools redact API/license keys but may print product, device, plan, entitlement, and timing metadata.
 
 ### Development Workflow
 
@@ -643,6 +622,9 @@ dotnet test
 
 # 3. Validate Unity package structure
 ./scripts/validate-unity-package.sh
+
+# 4. Compile Unity runtime/editor/samples/tests under the C# 9 compatibility contract
+dotnet build tests/LicenseSeat.Unity.Compile --configuration Release
 ```
 
 > **Important:** The Unity SDK shares core files with the main SDK. After modifying any files in `src/LicenseSeat/`, you must sync them to the Unity package using the sync script.
@@ -656,9 +638,11 @@ dotnet test
    dotnet test --configuration Release
    ./scripts/validate-unity-sync.sh
    ./scripts/validate-unity-package.sh
+   dotnet build tests/LicenseSeat.Unity.Compile --configuration Release
    ```
-3. Update version numbers (see Release Steps below)
-4. Update CHANGELOG.md
+3. Run real Unity Editor, player, and IL2CPP builds for every supported target. The static harness cannot replace them.
+4. Update version numbers (see Release Steps below)
+5. Update CHANGELOG.md
 
 ### Releasing
 

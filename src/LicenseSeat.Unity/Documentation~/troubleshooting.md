@@ -27,7 +27,7 @@ Common issues and their solutions when using the LicenseSeat Unity SDK.
 1. Check Unity version (requires 2021.3+)
 2. Set API Compatibility Level:
    - Edit > Project Settings > Player > Other Settings
-   - Set "Api Compatibility Level" to ".NET Standard 2.0" or ".NET 4.x"
+   - Set "Api Compatibility Level" to ".NET Standard 2.1"
 3. Try Assets > Reimport All
 
 ## Runtime Issues
@@ -51,9 +51,10 @@ Common issues and their solutions when using the LicenseSeat Unity SDK.
 
 **Solutions:**
 1. Verify API Key is correct in Settings
-2. Verify Product ID matches your LicenseSeat dashboard
+2. Verify the product slug matches your LicenseSeat dashboard
 3. Check the license key format
-4. Enable Debug Logging to see detailed error messages
+4. Enable Debug Logging for bounded SDK diagnostics; license keys and credentials
+   should never appear in the output
 5. Check network connectivity
 
 ### Validation Always Fails
@@ -92,8 +93,8 @@ Common issues and their solutions when using the LicenseSeat Unity SDK.
 1. The SDK automatically uses UnityWebRequest on WebGL
 2. Ensure your API server has proper CORS headers:
    ```
-   Access-Control-Allow-Origin: *
-   Access-Control-Allow-Methods: GET, POST, PUT, DELETE
+   Access-Control-Allow-Origin: https://your-game.example
+   Access-Control-Allow-Methods: GET, POST
    Access-Control-Allow-Headers: Content-Type, Authorization
    ```
 3. Use HTTPS for your API endpoint
@@ -106,21 +107,23 @@ Common issues and their solutions when using the LicenseSeat Unity SDK.
 
 **Solutions:**
 1. Verify `link.xml` is included (should be in package)
-2. Check Player Settings > Other Settings > "Managed Stripping Level" is not "High"
-3. Try "Minimal" stripping level
-4. If using custom types, add them to link.xml
+2. Confirm the pinned DLL hashes with
+   `shasum -a 256 -c Runtime/Plugins/DEPENDENCIES.sha256`
+3. Reproduce with a Development Build and retain the linker report
+4. If custom reflection-based types are involved, preserve those application
+   types in the application's own `link.xml`
 
 ### iOS/Android Specific
 
 **Symptoms:**
 - Works in Editor but not on device
-- "DllNotFoundException" (shouldn't happen with pure C#)
+- Managed assembly load or type initialization errors
 
 **Solutions:**
 1. Clean build (delete Builds folder)
 2. Check iOS/Android specific console logs
 3. Ensure all required permissions are granted
-4. Verify network security config allows your API domain
+4. Verify network security config allows only the intended HTTPS API domain
 
 ## Editor Issues
 
