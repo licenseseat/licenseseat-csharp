@@ -30,7 +30,7 @@ the package to `Packages/manifest.json`:
 ```json
 {
   "dependencies": {
-    "com.licenseseat.sdk": "https://github.com/licenseseat/licenseseat-csharp.git?path=src/LicenseSeat.Unity#v0.4.0"
+    "com.licenseseat.sdk": "https://github.com/licenseseat/licenseseat-csharp.git?path=src/LicenseSeat.Unity#v0.5.0"
   }
 }
 ```

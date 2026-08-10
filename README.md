@@ -105,7 +105,7 @@ openupm add com.licenseseat.sdk
 
 **Pin to a version:**
 ```
-https://github.com/licenseseat/licenseseat-csharp.git?path=src/LicenseSeat.Unity#v0.4.0
+https://github.com/licenseseat/licenseseat-csharp.git?path=src/LicenseSeat.Unity#v0.5.0
 ```
 
 ## Usage Examples
@@ -465,7 +465,7 @@ The SDK collects device telemetry and sends it with API requests to help you und
 | Field             | Example                        | Description                              |
 | ----------------- | ------------------------------ | ---------------------------------------- |
 | `sdk_name`        | `csharp`                       | SDK identifier (always "csharp")         |
-| `sdk_version`     | `0.4.0`                        | SDK version                              |
+| `sdk_version`     | `0.5.0`                        | SDK version                              |
 | `os_name`         | `Windows`                      | Operating system (Windows, macOS, Linux) |
 | `os_version`      | `10.0.22631.0`                 | Operating system version                 |
 | `platform`        | `native`                       | Runtime platform (`native` or `unity`)   |

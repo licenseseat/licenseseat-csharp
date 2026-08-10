@@ -1,6 +1,6 @@
 {
   "name": "com.licenseseat.sdk",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "displayName": "LicenseSeat SDK",
   "description": "Managed C# licensing SDK for Unity with pinned managed dependencies, license activation, validation, entitlements, and signed offline fallback.",
   "unity": "2021.3",

@@ -41,7 +41,7 @@ namespace LicenseSeat
         /// <summary>
         /// The current SDK version.
         /// </summary>
-        public const string SdkVersion = "0.4.0";
+        public const string SdkVersion = "0.5.0";
 
         private readonly LicenseSeatClientOptions _options;
         private readonly ApiClient _apiClient;
