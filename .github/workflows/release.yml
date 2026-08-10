@@ -9,6 +9,11 @@ on:
         description: Version to release (for example, 1.0.0)
         required: true
         type: string
+      publish_to_nuget:
+        description: Publish the validated package to NuGet.org (run from the matching immutable tag)
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -42,6 +47,9 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
           REQUESTED_VERSION: ${{ inputs.version }}
+          PUBLISH_TO_NUGET: ${{ inputs.publish_to_nuget }}
+          SOURCE_REF_NAME: ${{ github.ref_name }}
+          SOURCE_REF_TYPE: ${{ github.ref_type }}
         run: |
           if [ "$EVENT_NAME" = release ]; then
             version=${RELEASE_TAG#v}
@@ -52,6 +60,14 @@ jobs:
           if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$ ]]; then
             echo "::error::Invalid semantic version"
             exit 1
+          fi
+
+          if [ "$EVENT_NAME" = workflow_dispatch ] && [ "$PUBLISH_TO_NUGET" = true ]; then
+            expected_tag="v${version}"
+            if [ "$SOURCE_REF_TYPE" != tag ] || [ "$SOURCE_REF_NAME" != "$expected_tag" ]; then
+              echo "::error::NuGet publication must be dispatched from immutable tag ${expected_tag}"
+              exit 1
+            fi
           fi
 
           project_version=$(sed -n 's:.*<Version>\([^<]*\)</Version>.*:\1:p' src/LicenseSeat/LicenseSeat.csproj | head -1)
@@ -77,7 +93,7 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: |
             9.0.316
@@ -136,7 +152,7 @@ jobs:
           --version "$RELEASE_VERSION"
 
       - name: Upload validated release package
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nuget-release-${{ needs.validate.outputs.version }}
           path: |
@@ -149,6 +165,7 @@ jobs:
     name: Publish validated package to NuGet
     runs-on: ubuntu-latest
     needs: [validate, build]
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_to_nuget
     environment: nuget-publish
     permissions:
       id-token: write
@@ -159,12 +176,12 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: 10.0.302
 
       - name: Download validated package artifact
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: nuget-release-${{ needs.validate.outputs.version }}
           path: artifacts/packages
@@ -196,20 +213,20 @@ jobs:
   release-assets:
     name: Attach validated artifacts to GitHub release
     runs-on: ubuntu-latest
-    needs: [validate, build, publish]
+    needs: [validate, build]
     if: github.event_name == 'release'
     permissions:
       contents: write
 
     steps:
       - name: Download validated package artifact
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: nuget-release-${{ needs.validate.outputs.version }}
           path: artifacts/packages
 
       - name: Upload exact release assets
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
           fail_on_unmatched_files: true
           files: |
@@ -220,7 +237,7 @@ jobs:
     name: Release summary
     runs-on: ubuntu-latest
     needs: [validate, publish]
-    if: success()
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_to_nuget && success()
 
     steps:
       - name: Write summary
