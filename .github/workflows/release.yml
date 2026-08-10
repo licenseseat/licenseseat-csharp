@@ -9,6 +9,11 @@ on:
         description: Version to release (for example, 1.0.0)
         required: true
         type: string
+      publish_to_nuget:
+        description: Publish the validated package to NuGet.org (run from the matching immutable tag)
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -42,6 +47,9 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
           REQUESTED_VERSION: ${{ inputs.version }}
+          PUBLISH_TO_NUGET: ${{ inputs.publish_to_nuget }}
+          SOURCE_REF_NAME: ${{ github.ref_name }}
+          SOURCE_REF_TYPE: ${{ github.ref_type }}
         run: |
           if [ "$EVENT_NAME" = release ]; then
             version=${RELEASE_TAG#v}
@@ -52,6 +60,14 @@ jobs:
           if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$ ]]; then
             echo "::error::Invalid semantic version"
             exit 1
+          fi
+
+          if [ "$EVENT_NAME" = workflow_dispatch ] && [ "$PUBLISH_TO_NUGET" = true ]; then
+            expected_tag="v${version}"
+            if [ "$SOURCE_REF_TYPE" != tag ] || [ "$SOURCE_REF_NAME" != "$expected_tag" ]; then
+              echo "::error::NuGet publication must be dispatched from immutable tag ${expected_tag}"
+              exit 1
+            fi
           fi
 
           project_version=$(sed -n 's:.*<Version>\([^<]*\)</Version>.*:\1:p' src/LicenseSeat/LicenseSeat.csproj | head -1)
@@ -149,6 +165,7 @@ jobs:
     name: Publish validated package to NuGet
     runs-on: ubuntu-latest
     needs: [validate, build]
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_to_nuget
     environment: nuget-publish
     permissions:
       id-token: write
@@ -196,7 +213,7 @@ jobs:
   release-assets:
     name: Attach validated artifacts to GitHub release
     runs-on: ubuntu-latest
-    needs: [validate, build, publish]
+    needs: [validate, build]
     if: github.event_name == 'release'
     permissions:
       contents: write
@@ -220,7 +237,7 @@ jobs:
     name: Release summary
     runs-on: ubuntu-latest
     needs: [validate, publish]
-    if: success()
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_to_nuget && success()
 
     steps:
       - name: Write summary
