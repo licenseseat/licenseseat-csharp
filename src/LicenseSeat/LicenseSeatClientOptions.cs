@@ -74,10 +74,46 @@ namespace LicenseSeat
         public bool AllowInsecureHttp { get; set; }
 
         /// <summary>
-        /// Gets or sets the storage prefix for cached data.
+        /// Gets or sets the storage prefix for cached data. It namespaces the
+        /// entries written to <see cref="LicenseStore"/>, so two products sharing
+        /// one store directory must use different prefixes.
         /// Defaults to "licenseseat_".
         /// </summary>
         public string StoragePrefix { get; set; } = "licenseseat_";
+
+        /// <summary>
+        /// Gets or sets durable storage for the activation, device fingerprint,
+        /// signed offline token and clock-rollback floor, so they survive
+        /// application and operating-system restarts. Defaults to <c>null</c>
+        /// (memory only, the pre-0.6.0 behaviour).
+        /// </summary>
+        /// <remarks>
+        /// Use <c>FileLicenseStore.ForApplication("YourApp")</c> on desktop and
+        /// server platforms. Offline verification after a restart additionally
+        /// needs <see cref="SigningPublicKey"/>, because signing keys are never
+        /// read back from storage.
+        /// </remarks>
+        public ILicenseStore? LicenseStore { get; set; }
+
+        /// <summary>
+        /// Gets or sets an application-pinned Ed25519 signing public key (raw
+        /// 32 bytes, standard Base64), as returned by
+        /// <c>GET /api/v1/signing_keys/{key_id}</c>. Requires
+        /// <see cref="SigningKeyId"/>.
+        /// </summary>
+        /// <remarks>
+        /// A key fetched from the server is trusted only for the lifetime of the
+        /// process; local storage is writable by the party the signature
+        /// protects against, so it is never a source of signing authority. To
+        /// verify an offline token after a restart without network access,
+        /// ship the key in your application.
+        /// </remarks>
+        public string? SigningPublicKey { get; set; }
+
+        /// <summary>
+        /// Gets or sets the key ID (<c>kid</c>) of <see cref="SigningPublicKey"/>.
+        /// </summary>
+        public string? SigningKeyId { get; set; }
 
         /// <summary>
         /// Gets or sets the interval between automatic license validations.
@@ -248,6 +284,9 @@ namespace LicenseSeat
                 ApiBaseUrl = ApiBaseUrl,
                 AllowInsecureHttp = AllowInsecureHttp,
                 StoragePrefix = StoragePrefix,
+                LicenseStore = LicenseStore,
+                SigningPublicKey = SigningPublicKey,
+                SigningKeyId = SigningKeyId,
                 AutoValidateInterval = AutoValidateInterval,
                 NetworkRecheckInterval = NetworkRecheckInterval,
                 MaxRetries = MaxRetries,
@@ -397,6 +436,39 @@ namespace LicenseSeat
             if (DeviceId != null && !SecurityValidation.IsSafeText(DeviceId, 8, 255))
             {
                 throw new InvalidOperationException("DeviceId must be valid text between 8 and 255 bytes.");
+            }
+
+            if ((SigningPublicKey == null) != (SigningKeyId == null))
+            {
+                throw new InvalidOperationException("SigningPublicKey and SigningKeyId must be set together.");
+            }
+
+            if (SigningKeyId != null && !SecurityValidation.IsSafeIdentifier(SigningKeyId, 1, 255, allowColon: true))
+            {
+                throw new InvalidOperationException("SigningKeyId must be a safe identifier no longer than 255 bytes.");
+            }
+
+            if (SigningPublicKey != null && !IsCanonicalEd25519PublicKey(SigningPublicKey))
+            {
+                throw new InvalidOperationException("SigningPublicKey must be the canonical standard Base64 encoding of exactly 32 bytes.");
+            }
+        }
+
+        private static bool IsCanonicalEd25519PublicKey(string value)
+        {
+            if (!SecurityValidation.IsAsciiPrintable(value, 44, 44))
+            {
+                return false;
+            }
+
+            try
+            {
+                var bytes = Convert.FromBase64String(value);
+                return bytes.Length == 32 && string.Equals(Convert.ToBase64String(bytes), value, StringComparison.Ordinal);
+            }
+            catch (FormatException)
+            {
+                return false;
             }
         }
     }

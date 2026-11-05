@@ -105,7 +105,7 @@ openupm add com.licenseseat.sdk
 
 **Pin to a version:**
 ```
-https://github.com/licenseseat/licenseseat-csharp.git?path=src/LicenseSeat.Unity#v0.5.0
+https://github.com/licenseseat/licenseseat-csharp.git?path=src/LicenseSeat.Unity#v0.6.0
 ```
 
 ## Usage Examples
@@ -255,22 +255,53 @@ var client = new LicenseSeatClient(new LicenseSeatClientOptions
     ApiKey = "your-api-key",
     ProductSlug = "your-product",
     OfflineFallbackMode = OfflineFallbackMode.NetworkOnly,
-    MaxOfflineDays = 7  // Allow 7 days offline
+    MaxOfflineDays = 14,  // Allow 14 days without a successful online validation
+
+    // Survive app and OS restarts (0.6.0+). Without a store, state is memory-only.
+    LicenseStore = FileLicenseStore.ForApplication("YourApp"),
+
+    // Required to verify offline after a restart: GET /api/v1/signing_keys/{kid}
+    SigningKeyId = "your-signing-key-id",
+    SigningPublicKey = "BASE64_RAW_32_BYTE_ED25519_PUBLIC_KEY"
 });
 
-// Validate - falls back to cached offline token if network fails
+// Validate - falls back to the persisted offline token if the network fails
 var result = await client.ValidateAsync("LICENSE-KEY");
 if (result.Offline)
 {
-    Console.WriteLine("Validated offline with cached license");
+    Console.WriteLine("Validated offline with the signed offline token");
 }
 ```
 
-The SDK automatically fetches and caches Ed25519-signed offline tokens after activation. The built-in cache is memory-only: offline state does not survive process restarts. When an online activation in the current process has populated that cache, offline fallback:
-- Validates token signature cryptographically
-- Checks token expiration (`exp` timestamp)
-- Detects clock tampering
-- Returns cached entitlements
+After activation the SDK fetches an Ed25519-signed offline token and refreshes it
+after each successful online validation of a restored session and every
+`OfflineLicenseRefreshInterval`. Offline fallback (network failures only, never an
+authoritative server rejection):
+- Verifies the token signature, canonical payload, license, product and device claims
+- Checks token expiry (`exp`), not-before (`nbf`) and the license's own expiry
+- Enforces `MaxOfflineDays` from the token's issue time
+- Detects clock rollback, including across restarts when a store is configured
+- Returns the entitlements signed into the token
+
+**Persistence (`LicenseStore`).** `FileLicenseStore` writes small JSON files to
+`%LOCALAPPDATA%\YourApp\LicenseSeat` (or the platform equivalent), atomically. It
+stores the activation (identity only), the device fingerprint, the signed offline
+token and the clock-rollback floor. Nothing read back grants access on its own: the
+token is re-verified on every use, cached validation results and entitlements are
+never restored, and **signing keys are never persisted** (local files are writable
+by whoever the signature protects against), which is why an offline restart needs
+the pinned `SigningPublicKey`. Without the pin, a restarted app validates online and
+re-establishes the key in memory; only a cold start with no network fails closed
+with `no_public_key`. Implement `ILicenseStore` yourself for encrypted (e.g. DPAPI)
+or Unity `persistentDataPath` storage.
+
+**Device fingerprint.** The fingerprint an install activated with is persisted with
+a machine anchor (machine and user name, *not* the OS version) and reused for later
+activations, validations and heartbeats on that machine, so Windows updates no
+longer change the device or consume another seat. Upgrading from 0.5.x keeps the
+existing fingerprint: the derivation used when nothing is stored is unchanged. A
+store copied to a different machine or user account is ignored. An explicit
+`DeviceId` option always wins.
 
 ### Godot 4
 
@@ -336,6 +367,9 @@ Full Unity docs: [src/LicenseSeat.Unity/README.md](src/LicenseSeat.Unity/README.
 | `RetryDelay`           | 1 second                           | Base delay between retries                    |
 | `OfflineFallbackMode`  | `Disabled`                         | Offline validation mode                       |
 | `MaxOfflineDays`       | 0                                  | Offline grace period (0 = disabled)           |
+| `LicenseStore`         | `null` (memory only)               | Durable storage, e.g. `FileLicenseStore`      |
+| `SigningKeyId`         | `null`                             | Pinned signing key ID (with `SigningPublicKey`) |
+| `SigningPublicKey`     | `null`                             | Pinned Ed25519 key for offline after restart  |
 | `MaxClockSkew`         | 5 minutes                          | Clock tamper tolerance                        |
 | `HttpTimeout`          | 30 seconds                         | Request timeout                               |
 | `Debug`                | `false`                            | Enable debug logging                          |
@@ -465,7 +499,7 @@ The SDK collects device telemetry and sends it with API requests to help you und
 | Field             | Example                        | Description                              |
 | ----------------- | ------------------------------ | ---------------------------------------- |
 | `sdk_name`        | `csharp`                       | SDK identifier (always "csharp")         |
-| `sdk_version`     | `0.5.0`                        | SDK version                              |
+| `sdk_version`     | `0.6.0`                        | SDK version                              |
 | `os_name`         | `Windows`                      | Operating system (Windows, macOS, Linux) |
 | `os_version`      | `10.0.22631.0`                 | Operating system version                 |
 | `platform`        | `native`                       | Runtime platform (`native` or `unity`)   |

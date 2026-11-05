@@ -41,7 +41,7 @@ namespace LicenseSeat
         /// <summary>
         /// The current SDK version.
         /// </summary>
-        public const string SdkVersion = "0.5.0";
+        public const string SdkVersion = "0.6.0";
 
         private readonly LicenseSeatClientOptions _options;
         private readonly ApiClient _apiClient;
@@ -90,7 +90,7 @@ namespace LicenseSeat
             _lifetimeToken = _lifetimeCancellation.Token;
 
             _eventBus = new EventBus();
-            _cache = new LicenseCache(_options.StoragePrefix);
+            _cache = new LicenseCache(_options.StoragePrefix, _options.LicenseStore, null, Log);
 
             // Use custom HTTP adapter if provided, otherwise use default
             _apiClient = _options.HttpClientAdapter != null
@@ -121,14 +121,15 @@ namespace LicenseSeat
         /// </summary>
         /// <param name="options">Client configuration options.</param>
         /// <param name="httpClient">Custom HTTP client adapter.</param>
-        internal LicenseSeatClient(LicenseSeatClientOptions options, IHttpClientAdapter httpClient)
+        /// <param name="deviceAnchor">Machine anchor provider override (tests simulate another machine).</param>
+        internal LicenseSeatClient(LicenseSeatClientOptions options, IHttpClientAdapter httpClient, Func<string?>? deviceAnchor = null)
         {
             _options = options?.Clone() ?? throw new ArgumentNullException(nameof(options));
             _options.Validate();
             _lifetimeToken = _lifetimeCancellation.Token;
 
             _eventBus = new EventBus();
-            _cache = new LicenseCache(_options.StoragePrefix);
+            _cache = new LicenseCache(_options.StoragePrefix, _options.LicenseStore, deviceAnchor, Log);
             _apiClient = new ApiClient(_options, httpClient);
 
             _apiClient.OnNetworkStatusChange += HandleNetworkStatusChange;
@@ -165,8 +166,16 @@ namespace LicenseSeat
                     {
                         try
                         {
-                            await ValidateAsync(cachedLicense.Key, cancellationToken: _lifetimeToken)
+                            var startupResult = await ValidateAsync(cachedLicense.Key, cancellationToken: _lifetimeToken)
                                 .ConfigureAwait(false);
+
+                            // A restored session refreshes its offline token (and
+                            // re-establishes the signing key in memory) as soon as
+                            // the server confirms the license.
+                            if (startupResult.Valid && !startupResult.Offline && OfflinePolicyIsEnabled())
+                            {
+                                await SyncOfflineAssetsAsync(cachedLicense.Key, _lifetimeToken).ConfigureAwait(false);
+                            }
                         }
                         catch (OperationCanceledException) when (_lifetimeToken.IsCancellationRequested)
                         {
@@ -206,7 +215,10 @@ namespace LicenseSeat
             ValidateLicenseKey(licenseKey, nameof(licenseKey));
 
             options ??= new ActivationOptions();
-            var deviceId = options.DeviceId ?? _options.DeviceId ?? DeviceIdentifier.Generate();
+            // A fingerprint this machine already activated with (persisted, so
+            // it survives OS updates that change DeviceIdentifier.Generate())
+            // wins over re-deriving one: re-activating must reuse the seat.
+            var deviceId = options.DeviceId ?? _options.DeviceId ?? _cache.GetDeviceId() ?? DeviceIdentifier.Generate();
             ValidateFingerprint(deviceId, nameof(options));
 
             if (options.DeviceName != null && !SecurityValidation.IsSafeText(options.DeviceName, 1, 255))
@@ -347,6 +359,10 @@ namespace LicenseSeat
                 }
                 else
                 {
+                    // An authoritative online rejection retires the offline
+                    // token, so it cannot outlive the revocation (including
+                    // across a restart, now that tokens persist).
+                    _cache.ClearOfflineToken();
                     _eventBus.Emit(LicenseSeatEvents.ValidationFailed, result);
                     StopAutoValidation();
                     StopHeartbeat();
@@ -817,7 +833,7 @@ namespace LicenseSeat
             {
                 var offlineToken = await GetOfflineTokenAsync(licenseKey, cancellationToken).ConfigureAwait(false);
                 var keyId = offlineToken.Signature!.KeyId!;
-                var publicKey = _cache.GetPublicKey(keyId);
+                var publicKey = ResolveTrustedPublicKey(keyId);
                 var fetchedKey = false;
                 if (publicKey == null)
                 {
@@ -985,7 +1001,7 @@ namespace LicenseSeat
             }
 
             var keyId = offlineToken.Signature!.KeyId!;
-            var publicKey = _cache.GetPublicKey(keyId);
+            var publicKey = ResolveTrustedPublicKey(keyId);
             if (string.IsNullOrEmpty(publicKey))
             {
                 return Task.FromResult(ValidationResult.OfflineResult(false, "no_public_key"));
@@ -1520,6 +1536,21 @@ namespace LicenseSeat
             // Never replace an authoritative HTTP response (including 4xx/5xx) or
             // a local protocol/security rejection with cached authorization.
             return error is ApiException apiError && apiError.IsNetworkError;
+        }
+
+        /// <summary>
+        /// The application-pinned key when its ID matches; otherwise a key
+        /// fetched from the server during this process. Never a key from storage.
+        /// </summary>
+        private string? ResolveTrustedPublicKey(string keyId)
+        {
+            if (_options.SigningKeyId != null &&
+                string.Equals(_options.SigningKeyId, keyId, StringComparison.Ordinal))
+            {
+                return _options.SigningPublicKey;
+            }
+
+            return _cache.GetPublicKey(keyId);
         }
 
         private bool OfflinePolicyIsEnabled()

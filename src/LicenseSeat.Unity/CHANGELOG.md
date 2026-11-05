@@ -5,6 +5,48 @@ All notable changes to the LicenseSeat Unity SDK will be documented in this file
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - Unreleased
+
+### Added
+
+- Persistent offline licensing (#25). `LicenseSeatClientOptions.LicenseStore`
+  takes an `ILicenseStore`; the core package's `FileLicenseStore` (not shipped in the Unity
+  package; implement `ILicenseStore` over `Application.persistentDataPath`) stores
+  the activation, device fingerprint, signed offline token and clock-rollback
+  floor under the user's local (non-roaming) application data folder with
+  atomic writes. A restarted app now resumes its session (`LicenseLoaded`) and,
+  offline, validates against the persisted token for up to `MaxOfflineDays`,
+  never beyond the token's `exp` or the license's expiry.
+- `SigningPublicKey` / `SigningKeyId` options pin the organization's Ed25519
+  key in the application. Signing keys are never persisted, so offline
+  verification after a restart requires the pin; the pinned key is also used
+  instead of fetching one.
+- A restored session refreshes its offline token after its first successful
+  online validation.
+
+### Fixed
+
+- Clock-rollback detection now works across restarts when a store is
+  configured (the last-seen floor is persisted and only moves forward).
+- Device fingerprint drift on Windows updates: the fingerprint an install
+  activated with is persisted and reused for re-activation, validation and
+  heartbeats on that machine, so an OS build change no longer orphans the
+  activation or consumes a seat. The derivation used when nothing is stored is
+  unchanged (pinned by a golden test), so upgrading from 0.5.x presents the
+  same fingerprint. A stored identity is bound to the machine and user by an
+  OS-version-independent anchor and ignored elsewhere.
+- An authoritative online rejection (`valid: false`) now discards the offline
+  token, so it cannot authorize offline use after a revocation.
+
+### Changed
+
+- `Reset()` / `PurgeCachedLicense()` clear the license, offline token and
+  signing keys but keep the device fingerprint and clock-rollback floor; they
+  are not authority, and discarding them would let a later activation on the
+  same machine consume a new seat.
+- The memory-only statement from 0.5.0 now applies only when no
+  `LicenseStore` is configured (the default).
+
 ## [0.5.0] - 2026-08-10
 
 ### Security

@@ -14,6 +14,15 @@ namespace LicenseSeat
         /// <summary>
         /// Generates a unique device identifier.
         /// </summary>
+        /// <remarks>
+        /// The output of this method is the fingerprint every existing
+        /// activation was created with. It must never change: a different value
+        /// for the same machine is a new device to the server and consumes a
+        /// seat. Its known weakness, that the OS version (including the build
+        /// number) is part of the input, is handled by persistence instead: the
+        /// first activated fingerprint is stored and stays authoritative across
+        /// OS updates (see <c>LicenseCache</c>).
+        /// </remarks>
         /// <returns>A unique device identifier string.</returns>
         public static string Generate()
         {
@@ -34,6 +43,38 @@ namespace LicenseSeat
             {
                 // Fall back to a random GUID if we can't get machine info
                 return Guid.NewGuid().ToString("N");
+            }
+        }
+
+        /// <summary>
+        /// Computes the machine anchor that binds a persisted device fingerprint
+        /// to the machine and user account it was activated on.
+        /// </summary>
+        /// <remarks>
+        /// Unlike <see cref="Generate"/>, the anchor deliberately excludes the
+        /// operating-system version, so it survives Windows cumulative and
+        /// feature updates. It is only ever compared locally against the anchor
+        /// stored next to a persisted fingerprint; it is never sent to the
+        /// server and never used as a fingerprint, so introducing it changes no
+        /// existing activation.
+        /// </remarks>
+        /// <returns>The anchor, or <c>null</c> when machine identity is unavailable.</returns>
+        public static string? ComputeAnchor()
+        {
+            try
+            {
+                var machineName = Environment.MachineName;
+                var userName = Environment.UserName;
+                if (string.IsNullOrEmpty(machineName) || string.IsNullOrEmpty(userName))
+                {
+                    return null;
+                }
+
+                return ComputeHash($"licenseseat-device-anchor-v1:{machineName}:{userName}");
+            }
+            catch (Exception)
+            {
+                return null;
             }
         }
 
