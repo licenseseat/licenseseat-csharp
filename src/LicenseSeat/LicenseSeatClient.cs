@@ -1340,7 +1340,8 @@ namespace LicenseSeat
 
             const long maxLifetimeSeconds = 100L * 366L * 24L * 60L * 60L;
             if (token.Iat <= 0 || token.Nbf <= 0 || token.Exp <= 0 ||
-                token.Iat > token.Nbf || token.Nbf > token.Exp ||
+                // nbf < exp strictly: a zero-width window is never valid (cross-SDK contract).
+                token.Iat > token.Nbf || token.Nbf >= token.Exp ||
                 token.Exp - token.Iat > maxLifetimeSeconds ||
                 (token.LicenseExpiresAt.HasValue && token.LicenseExpiresAt.Value < token.Iat) ||
                 (token.SeatLimit.HasValue && (token.SeatLimit.Value < 1 || token.SeatLimit.Value > 1_000_000)))
