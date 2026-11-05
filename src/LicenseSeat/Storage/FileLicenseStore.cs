@@ -82,7 +82,9 @@ namespace LicenseSeat
                 return null;
             }
 
-            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+            // Share write and delete so a concurrent atomic replace (or a
+            // revocation's delete) is never blocked by a reader on Windows.
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
             if (stream.Length > MaxEntryBytes)
             {
                 throw new InvalidDataException("Stored entry exceeds the maximum size.");
@@ -141,9 +143,21 @@ namespace LicenseSeat
         public void Delete(string entryName)
         {
             var path = PathFor(entryName);
-            if (File.Exists(path))
+            for (var attempt = 1; ; attempt++)
             {
-                File.Delete(path);
+                try
+                {
+                    if (File.Exists(path))
+                    {
+                        File.Delete(path);
+                    }
+
+                    return;
+                }
+                catch (Exception ex) when ((ex is IOException || ex is UnauthorizedAccessException) && attempt < 5)
+                {
+                    System.Threading.Thread.Sleep(20 * attempt);
+                }
             }
         }
 
@@ -158,12 +172,15 @@ namespace LicenseSeat
         }
 
         // netstandard2.0 has no File.Move(overwrite: true). File.Replace swaps an
-        // existing destination atomically; File.Move covers a missing one. If a
-        // concurrent writer creates or removes the destination between the
-        // check and the call, retry once with the other primitive.
+        // existing destination atomically; File.Move covers a missing one. The
+        // existence check is re-evaluated on every attempt, so a concurrent
+        // writer creating or removing the destination is handled, and a short
+        // bounded backoff rides out transient sharing violations (antivirus,
+        // indexers, sync clients) that are routine on Windows.
         private static void Replace(string source, string destination)
         {
-            for (var attempt = 0; ; attempt++)
+            const int Attempts = 5;
+            for (var attempt = 1; ; attempt++)
             {
                 try
                 {
@@ -178,9 +195,9 @@ namespace LicenseSeat
 
                     return;
                 }
-                catch (IOException) when (attempt == 0)
+                catch (Exception ex) when ((ex is IOException || ex is UnauthorizedAccessException) && attempt < Attempts)
                 {
-                    // Retry once; see the method comment.
+                    System.Threading.Thread.Sleep(20 * attempt);
                 }
             }
         }

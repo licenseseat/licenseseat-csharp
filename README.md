@@ -285,23 +285,37 @@ authoritative server rejection):
 
 **Persistence (`LicenseStore`).** `FileLicenseStore` writes small JSON files to
 `%LOCALAPPDATA%\YourApp\LicenseSeat` (or the platform equivalent), atomically. It
-stores the activation (identity only), the device fingerprint, the signed offline
-token and the clock-rollback floor. Nothing read back grants access on its own: the
-token is re-verified on every use, cached validation results and entitlements are
-never restored, and **signing keys are never persisted** (local files are writable
-by whoever the signature protects against), which is why an offline restart needs
-the pinned `SigningPublicKey`. Without the pin, a restarted app validates online and
-re-establishes the key in memory; only a cold start with no network fails closed
-with `no_public_key`. Implement `ILicenseStore` yourself for encrypted (e.g. DPAPI)
-or Unity `persistentDataPath` storage.
+stores the activation (license key, device and activation time only), the device
+fingerprint, the signed offline token and the clock-rollback floor. Nothing read back
+grants access on its own: the token is re-verified on every use; status, expiry,
+entitlements and validation results are never restored (a restored license is
+`Pending` until validated); and **signing keys are never persisted** (local files are
+writable by whoever the signature protects against), which is why an offline restart
+needs the pinned `SigningPublicKey`. Without the pin, a restarted app validates online
+and re-establishes the key in memory; only a cold start with no network fails closed
+with `no_public_key`. An online `valid: false`, `Reset()`, `PurgeCachedLicense()` and
+deactivation delete the token. Implement `ILicenseStore` yourself for encrypted (e.g.
+DPAPI) or Unity `persistentDataPath` storage.
 
-**Device fingerprint.** The fingerprint an install activated with is persisted with
-a machine anchor (machine and user name, *not* the OS version) and reused for later
-activations, validations and heartbeats on that machine, so Windows updates no
-longer change the device or consume another seat. Upgrading from 0.5.x keeps the
-existing fingerprint: the derivation used when nothing is stored is unchanged. A
-store copied to a different machine or user account is ignored. An explicit
-`DeviceId` option always wins.
+**Device fingerprint.** The default fingerprint is unchanged from 0.5.x
+(`sha256(machine:user:osVersion)`), so upgrading keeps every existing activation. With
+a store, the fingerprint an install activated with is persisted together with the OS
+version it was derived from; on load it must re-derive from *this* machine's name and
+user name, so it survives Windows updates (no new device, no extra seat) but cannot be
+copied to, or rewritten for, a machine or account with a different name. Custom
+fingerprints are not persisted as identity: if you supply your own, set the `DeviceId`
+option, which always wins. If the stored device record exists but cannot be read
+(e.g. locked by antivirus), `ActivateAsync` throws `device_identity_unavailable` rather
+than activating a new device; retry.
+
+**Limits of offline enforcement.** The offline window is bounded by signed values:
+the token's `exp`, the license expiry (and any shorter expiry the server reported in
+this process), and `MaxOfflineDays` from the token's issue time. Clock-rollback
+detection persists a last-seen floor, and a token is not restored without it, but a
+user who both edits the store and turns the system clock back can replay an old token
+within its signed window; that is inherent to offline licensing without a trusted
+clock. `GetStatus()` and `HasEntitlement()` stop granting offline access when that
+window closes, even without another `ValidateAsync` call.
 
 ### Godot 4
 

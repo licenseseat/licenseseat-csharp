@@ -78,21 +78,17 @@ public sealed class FileLicenseStoreTests : IDisposable
         var store = new FileLicenseStore(_directory);
         var values = Enumerable.Range(0, 40).Select(i => JsonSerializer.Serialize(new { writer = i, padding = new string('p', 4096) })).ToArray();
 
-        await Task.WhenAll(values.Select(value => Task.Run(() =>
+        var reader = Task.Run(() =>
         {
-            // Concurrent replace can lose a race on some platforms; the
-            // contract is that the surviving file is always one whole value.
-            try
+            // Readers must never block writers (FileShare.ReadWrite | Delete).
+            for (var i = 0; i < 200; i++)
             {
-                store.Write("licenseseat_offline_token", value);
+                var value = store.Read("licenseseat_offline_token");
+                Assert.True(value == null || values.Contains(value));
             }
-            catch (IOException)
-            {
-            }
-            catch (UnauthorizedAccessException)
-            {
-            }
-        })));
+        });
+
+        await Task.WhenAll(values.Select(value => Task.Run(() => store.Write("licenseseat_offline_token", value))).Append(reader));
 
         Assert.Contains(store.Read("licenseseat_offline_token"), values);
         Assert.Empty(Directory.GetFiles(_directory, "*.tmp"));

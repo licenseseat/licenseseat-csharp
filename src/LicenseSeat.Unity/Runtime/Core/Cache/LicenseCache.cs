@@ -1,6 +1,7 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Text.Json;
 
 namespace LicenseSeat
@@ -16,33 +17,32 @@ namespace LicenseSeat
     /// What is persisted, and why it is safe to read back:
     /// <list type="bullet">
     /// <item><description>
-    /// <c>device</c>: the fingerprint the license was activated with, plus a
-    /// machine anchor (<see cref="DeviceIdentifier.ComputeAnchor"/>). The
-    /// stored fingerprint is authoritative on the machine it was written on,
-    /// so a Windows update that changes <see cref="DeviceIdentifier.Generate"/>
-    /// no longer orphans the activation or burns a seat. A record whose anchor
-    /// does not match this machine and user is ignored together with the
-    /// license and token, so copying the folder to another machine does not
-    /// carry the activation with it.
+    /// <c>device</c>: a fingerprint produced by the default derivation plus the
+    /// OS version string it was derived from. On load the fingerprint must
+    /// re-derive from <em>this</em> machine's name and user name and the stored
+    /// OS version, so the record survives OS updates (which change only the OS
+    /// version) but cannot be moved to, or rewritten for, a machine with a
+    /// different name or account: that would need a SHA-256 preimage. Custom
+    /// fingerprints are never persisted as device identity; apps that use them
+    /// configure <see cref="LicenseSeatClientOptions.DeviceId"/>.
     /// </description></item>
     /// <item><description>
-    /// <c>license</c>: identity only. Cached validation results, entitlements
-    /// and the last-validated time are discarded on load; the license is
-    /// <c>Pending</c> until validated online or by a verified offline token.
+    /// <c>license</c>: key, device and activation time only. Status, expiry,
+    /// plan, entitlements and validation results are never stored, so a
+    /// restored license is <c>Pending</c> and not <c>IsActive</c> until it is
+    /// validated online or by a verified offline token.
     /// </description></item>
     /// <item><description>
-    /// <c>offline_token</c>: re-verified in full on every use.
+    /// <c>offline_token</c>: re-verified in full on every use, and only
+    /// restored together with a rollback floor.
     /// </description></item>
     /// <item><description>
-    /// <c>last_seen</c>: the clock-rollback floor. It can only move forward,
-    /// so a persisted value can only make verification stricter.
+    /// <c>last_seen</c>: the clock-rollback floor; only ever moves forward,
+    /// including across processes sharing the store.
     /// </description></item>
     /// </list>
     /// Signing keys are never persisted: local storage is writable by the
-    /// party the signature protects against, so it cannot establish signing
-    /// authority. Pin the key with
-    /// <see cref="LicenseSeatClientOptions.SigningPublicKey"/> for offline
-    /// verification after a restart.
+    /// party the signature protects against.
     /// </remarks>
     internal sealed class LicenseCache
     {
@@ -50,7 +50,9 @@ namespace LicenseSeat
         internal const string OfflineTokenEntry = "offline_token";
         internal const string DeviceEntry = "device";
         internal const string LastSeenEntry = "last_seen";
-        private const int DeviceRecordVersion = 1;
+        private const int RecordVersion = 1;
+        private const string Tombstone = "{\"deleted\":true}";
+        private const int MaxEntryBytes = 1024 * 1024;
 
         private static readonly JsonSerializerOptions JsonOptions = new JsonSerializerOptions
         {
@@ -63,12 +65,16 @@ namespace LicenseSeat
         private readonly object _lock = new object();
         private readonly string _prefix;
         private readonly ILicenseStore? _store;
-        private readonly Func<string?> _deviceAnchor;
+        private readonly Func<DeviceInputs?> _environment;
+        private readonly string? _configuredDeviceId;
         private readonly Action<string> _log;
 
         private License? _license;
         private OfflineTokenResponse? _offlineToken;
         private string? _deviceId;
+        private string? _persistedFingerprint;
+        private string? _persistedOsVersion;
+        private bool _deviceRecordUnreadable;
         private readonly Dictionary<string, string> _publicKeys = new Dictionary<string, string>(StringComparer.Ordinal);
         private long _lastSeenTimestamp;
 
@@ -77,7 +83,7 @@ namespace LicenseSeat
         /// </summary>
         /// <param name="prefix">Validated namespace for persisted entry names.</param>
         public LicenseCache(string prefix)
-            : this(prefix, null, null, null)
+            : this(prefix, null, null, null, null)
         {
         }
 
@@ -86,9 +92,15 @@ namespace LicenseSeat
         /// </summary>
         /// <param name="prefix">Validated namespace for persisted entry names.</param>
         /// <param name="store">Optional durable store.</param>
-        /// <param name="deviceAnchor">Machine anchor provider; defaults to <see cref="DeviceIdentifier.ComputeAnchor"/>.</param>
+        /// <param name="environment">Machine facts provider; defaults to <see cref="DeviceIdentifier.CurrentInputs"/>.</param>
+        /// <param name="configuredDeviceId">The application-configured device ID, which is authoritative when set.</param>
         /// <param name="log">Diagnostic sink for storage faults.</param>
-        public LicenseCache(string prefix, ILicenseStore? store, Func<string?>? deviceAnchor, Action<string>? log)
+        public LicenseCache(
+            string prefix,
+            ILicenseStore? store,
+            Func<DeviceInputs?>? environment,
+            string? configuredDeviceId,
+            Action<string>? log)
         {
             if (!SecurityValidation.IsSafeIdentifier(prefix, 1, 64))
             {
@@ -97,7 +109,8 @@ namespace LicenseSeat
 
             _prefix = prefix;
             _store = store;
-            _deviceAnchor = deviceAnchor ?? DeviceIdentifier.ComputeAnchor;
+            _environment = environment ?? DeviceIdentifier.CurrentInputs;
+            _configuredDeviceId = configuredDeviceId;
             _log = log ?? (_ => { });
 
             if (_store != null)
@@ -126,7 +139,13 @@ namespace LicenseSeat
             lock (_lock)
             {
                 _license = CloneLicense(license);
-                Persist(LicenseEntry, () => JsonSerializer.Serialize(_license, JsonOptions));
+                Persist(LicenseEntry, JsonSerializer.Serialize(new LicenseRecord
+                {
+                    Version = RecordVersion,
+                    Key = _license.Key,
+                    DeviceId = _license.DeviceId,
+                    ActivatedAt = _license.ActivatedAt
+                }, JsonOptions));
             }
         }
 
@@ -174,8 +193,48 @@ namespace LicenseSeat
             }
         }
 
-        /// <summary>Sets the cached device fingerprint and persists it with this machine's anchor.</summary>
-        public void SetDeviceId(string deviceId)
+        /// <summary>
+        /// The persisted default-derivation fingerprint verified for this
+        /// machine, with the OS version it was derived from. Activation reuses it
+        /// so an OS update does not create a new device.
+        /// </summary>
+        public bool TryGetPersistedFingerprint(out string fingerprint, out string osVersion)
+        {
+            lock (_lock)
+            {
+                fingerprint = _persistedFingerprint ?? string.Empty;
+                osVersion = _persistedOsVersion ?? string.Empty;
+                return _persistedFingerprint != null;
+            }
+        }
+
+        /// <summary>
+        /// Whether a device record exists but could not be read. Re-reads it
+        /// first, so a transient fault (antivirus, sync client) clears itself.
+        /// While this is true a new device must not be established: doing so
+        /// could replace the activated fingerprint and consume another seat.
+        /// </summary>
+        public bool DeviceRecordIsUnreadable()
+        {
+            lock (_lock)
+            {
+                if (_deviceRecordUnreadable && _store != null)
+                {
+                    HydrateDevice();
+                }
+
+                return _deviceRecordUnreadable;
+            }
+        }
+
+        /// <summary>Sets the cached device fingerprint.</summary>
+        /// <param name="deviceId">The fingerprint the license was activated with.</param>
+        /// <param name="derivedFromOsVersion">
+        /// The OS version when <paramref name="deviceId"/> came from the default
+        /// derivation; <c>null</c> for custom fingerprints, which are never
+        /// persisted as device identity.
+        /// </param>
+        public void SetDeviceId(string deviceId, string? derivedFromOsVersion = null)
         {
             if (!SecurityValidation.IsSafeText(deviceId, 8, 255))
             {
@@ -185,25 +244,19 @@ namespace LicenseSeat
             lock (_lock)
             {
                 _deviceId = deviceId;
-                if (_store == null)
+                if (_store == null || derivedFromOsVersion == null || _configuredDeviceId != null)
                 {
                     return;
                 }
 
-                var anchor = SafeAnchor();
-                if (anchor == null)
+                _persistedFingerprint = deviceId;
+                _persistedOsVersion = derivedFromOsVersion;
+                _deviceRecordUnreadable = false;
+                Persist(DeviceEntry, JsonSerializer.Serialize(new DeviceRecord
                 {
-                    // Without an anchor the record could not be trusted on reload.
-                    _log("Device identity is unavailable; the device fingerprint was not persisted.");
-                    Remove(DeviceEntry);
-                    return;
-                }
-
-                Persist(DeviceEntry, () => JsonSerializer.Serialize(new DeviceRecord
-                {
-                    Version = DeviceRecordVersion,
+                    Version = RecordVersion,
                     Fingerprint = deviceId,
-                    Anchor = anchor
+                    OsVersion = derivedFromOsVersion
                 }, JsonOptions));
             }
         }
@@ -228,7 +281,7 @@ namespace LicenseSeat
             lock (_lock)
             {
                 _offlineToken = Clone(offlineToken);
-                Persist(OfflineTokenEntry, () => JsonSerializer.Serialize(_offlineToken, JsonOptions));
+                Persist(OfflineTokenEntry, JsonSerializer.Serialize(_offlineToken, JsonOptions));
             }
         }
 
@@ -296,11 +349,27 @@ namespace LicenseSeat
 
             lock (_lock)
             {
-                if (timestamp > _lastSeenTimestamp)
+                if (timestamp <= _lastSeenTimestamp)
                 {
-                    _lastSeenTimestamp = timestamp;
-                    Persist(LastSeenEntry, () => JsonSerializer.Serialize(new LastSeenRecord { LastSeen = timestamp }, JsonOptions));
+                    return;
                 }
+
+                _lastSeenTimestamp = timestamp;
+                if (_store == null)
+                {
+                    return;
+                }
+
+                // Another process sharing the store may have written a later
+                // value; never overwrite it with an earlier one.
+                var stored = Load<LastSeenRecord>(LastSeenEntry, out _);
+                if (stored != null && stored.LastSeen > _lastSeenTimestamp)
+                {
+                    _lastSeenTimestamp = stored.LastSeen;
+                    return;
+                }
+
+                Persist(LastSeenEntry, JsonSerializer.Serialize(new LastSeenRecord { LastSeen = _lastSeenTimestamp }, JsonOptions));
             }
         }
 
@@ -327,54 +396,53 @@ namespace LicenseSeat
         {
             lock (_lock)
             {
-                // The rollback floor is safe to restore unconditionally: it only
-                // ever makes verification stricter.
-                var lastSeen = Load<LastSeenRecord>(LastSeenEntry);
-                if (lastSeen != null && lastSeen.LastSeen > 0)
+                var lastSeen = Load<LastSeenRecord>(LastSeenEntry, out _);
+                var hasFloor = lastSeen != null && lastSeen.LastSeen > 0;
+                if (hasFloor)
                 {
-                    _lastSeenTimestamp = lastSeen.LastSeen;
+                    _lastSeenTimestamp = lastSeen!.LastSeen;
                 }
 
-                var device = Load<DeviceRecord>(DeviceEntry);
-                if (device == null)
-                {
-                    return;
-                }
-
-                var anchor = SafeAnchor();
-                if (device.Version != DeviceRecordVersion ||
-                    !SecurityValidation.IsSafeText(device.Fingerprint, 8, 255) ||
-                    anchor == null ||
-                    device.Anchor == null ||
-                    !Ed25519Verifier.ConstantTimeEquals(device.Anchor, anchor))
-                {
-                    _log("Persisted device identity does not belong to this machine and user; ignoring persisted license state.");
-                    return;
-                }
-
-                _deviceId = device.Fingerprint;
-
-                var license = Load<License>(LicenseEntry);
-                if (license == null)
+                HydrateDevice();
+                var trusted = _configuredDeviceId ?? _persistedFingerprint;
+                if (trusted == null)
                 {
                     return;
                 }
 
-                if (!SecurityValidation.IsAsciiPrintable(license.Key, 1, 512) ||
-                    !string.Equals(license.DeviceId, _deviceId, StringComparison.Ordinal))
+                _deviceId = trusted;
+
+                var record = Load<LicenseRecord>(LicenseEntry, out _);
+                if (record == null)
                 {
-                    _log("Persisted license is inconsistent with the persisted device identity; ignoring it.");
                     return;
                 }
 
-                // Identity only: nothing that grants access is trusted from disk.
-                license.Validation = null;
-                license.ActiveEntitlements = null;
-                license.LastValidated = null;
-                _license = license;
+                if (record.Version != RecordVersion ||
+                    !SecurityValidation.IsAsciiPrintable(record.Key, 1, 512) ||
+                    !string.Equals(record.DeviceId, trusted, StringComparison.Ordinal))
+                {
+                    _log("Persisted license does not belong to this device; ignoring it.");
+                    return;
+                }
 
-                var offlineToken = Load<OfflineTokenResponse>(OfflineTokenEntry);
-                if (offlineToken != null)
+                _license = new License
+                {
+                    Key = record.Key!,
+                    DeviceId = trusted,
+                    ActivatedAt = record.ActivatedAt
+                };
+
+                if (!hasFloor)
+                {
+                    // A token without its rollback floor (deleted or unreadable)
+                    // is not restored; the next online validation re-issues one.
+                    _log("No persisted rollback floor; not restoring the offline token.");
+                    return;
+                }
+
+                var offlineToken = Load<OfflineTokenResponse>(OfflineTokenEntry, out _);
+                if (offlineToken != null && offlineToken.Object == "offline_token")
                 {
                     // Re-verified in full every time it is used.
                     _offlineToken = offlineToken;
@@ -382,18 +450,74 @@ namespace LicenseSeat
             }
         }
 
-        private T? Load<T>(string entry)
+        // Caller holds _lock.
+        private void HydrateDevice()
+        {
+            _deviceRecordUnreadable = false;
+            if (_configuredDeviceId != null)
+            {
+                return;
+            }
+
+            var device = Load<DeviceRecord>(DeviceEntry, out var transientFault);
+            if (transientFault)
+            {
+                _deviceRecordUnreadable = true;
+                return;
+            }
+
+            if (device == null)
+            {
+                return;
+            }
+
+            var inputs = SafeEnvironment();
+            if (device.Version != RecordVersion ||
+                inputs == null ||
+                !SecurityValidation.IsSafeText(device.Fingerprint, 8, 255) ||
+                !SecurityValidation.IsSafeText(device.OsVersion, 1, 1024) ||
+                !Ed25519Verifier.ConstantTimeEquals(
+                    DeviceIdentifier.FromInputs(inputs.MachineName, inputs.UserName, device.OsVersion!),
+                    device.Fingerprint))
+            {
+                _log("Persisted device identity does not derive from this machine and user; ignoring persisted license state.");
+                return;
+            }
+
+            _persistedFingerprint = device.Fingerprint;
+            _persistedOsVersion = device.OsVersion;
+        }
+
+        private T? Load<T>(string entry, out bool transientFault)
             where T : class
         {
+            transientFault = false;
+            string? text;
             try
             {
-                var text = _store!.Read(EntryName(entry));
-                if (text == null)
-                {
-                    return null;
-                }
+                text = _store!.Read(EntryName(entry));
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+            {
+                // Possibly transient (locked by antivirus or a sync client).
+                transientFault = !(ex is InvalidDataException);
+                _log($"Could not read persisted entry '{entry}' ({ex.GetType().Name}).");
+                return null;
+            }
+            catch (Exception ex)
+            {
+                _log($"Ignoring unreadable persisted entry '{entry}' ({ex.GetType().Name}).");
+                return null;
+            }
 
-                using (SecurityValidation.ParseStrictJson(text, FileLicenseStoreLimits.MaxEntryBytes))
+            if (text == null)
+            {
+                return null;
+            }
+
+            try
+            {
+                using (SecurityValidation.ParseStrictJson(text, MaxEntryBytes))
                 {
                     // Structural validation only: bounded size and depth, no duplicate properties.
                 }
@@ -402,12 +526,12 @@ namespace LicenseSeat
             }
             catch (Exception ex)
             {
-                _log($"Ignoring unreadable persisted entry '{entry}' ({ex.GetType().Name}).");
+                _log($"Ignoring corrupt persisted entry '{entry}' ({ex.GetType().Name}).");
                 return null;
             }
         }
 
-        private void Persist(string entry, Func<string> serialize)
+        private void Persist(string entry, string contents)
         {
             if (_store == null)
             {
@@ -416,7 +540,7 @@ namespace LicenseSeat
 
             try
             {
-                _store.Write(EntryName(entry), serialize());
+                _store.Write(EntryName(entry), contents);
             }
             catch (Exception ex)
             {
@@ -434,19 +558,23 @@ namespace LicenseSeat
             try
             {
                 _store.Delete(EntryName(entry));
+                return;
             }
             catch (Exception ex)
             {
-                _log($"Failed to delete persisted '{entry}' ({ex.GetType().Name}).");
+                _log($"Failed to delete persisted '{entry}' ({ex.GetType().Name}); writing a tombstone.");
             }
+
+            // A deletion that fails must not leave a revoked token or license
+            // restorable: overwrite it with a value that never loads.
+            Persist(entry, Tombstone);
         }
 
-        private string? SafeAnchor()
+        private DeviceInputs? SafeEnvironment()
         {
             try
             {
-                var anchor = _deviceAnchor();
-                return string.IsNullOrEmpty(anchor) ? null : anchor;
+                return _environment();
             }
             catch (Exception)
             {
@@ -473,18 +601,24 @@ namespace LicenseSeat
             return clone;
         }
 
-        private static class FileLicenseStoreLimits
-        {
-            internal const int MaxEntryBytes = 1024 * 1024;
-        }
-
         private sealed class DeviceRecord
         {
             public int Version { get; set; }
 
             public string? Fingerprint { get; set; }
 
-            public string? Anchor { get; set; }
+            public string? OsVersion { get; set; }
+        }
+
+        private sealed class LicenseRecord
+        {
+            public int Version { get; set; }
+
+            public string? Key { get; set; }
+
+            public string? DeviceId { get; set; }
+
+            public DateTimeOffset? ActivatedAt { get; set; }
         }
 
         private sealed class LastSeenRecord

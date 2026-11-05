@@ -29,14 +29,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Clock-rollback detection now works across restarts when a store is
   configured (the last-seen floor is persisted and only moves forward).
 - Device fingerprint drift on Windows updates: the fingerprint an install
-  activated with is persisted and reused for re-activation, validation and
-  heartbeats on that machine, so an OS build change no longer orphans the
-  activation or consumes a seat. The derivation used when nothing is stored is
+  activated with is persisted with the OS version it was derived from and
+  reused for re-activation, validation and heartbeats, so an OS build change
+  no longer orphans the activation or consumes a seat. On load it must
+  re-derive from this machine's name and user name, so a copied or edited
+  store cannot adopt another machine's fingerprint. The default derivation is
   unchanged (pinned by a golden test), so upgrading from 0.5.x presents the
-  same fingerprint. A stored identity is bound to the machine and user by an
-  OS-version-independent anchor and ignored elsewhere.
+  same fingerprint. An unreadable device record blocks activation
+  (`device_identity_unavailable`) instead of silently creating a new device.
 - An authoritative online rejection (`valid: false`) now discards the offline
   token, so it cannot authorize offline use after a revocation.
+- Offline fallback is bound to the requested license key and device, not
+  whatever the cache holds.
+- `GetStatus()` / `HasEntitlement()` stop reporting offline access once the
+  verified token's window (exp, license expiry, `MaxOfflineDays`) closes.
+- Successful online validation refreshes a stale offline token (older than
+  `OfflineLicenseRefreshInterval`, missing its signing key, or carrying a
+  different license expiry), and a shorter server-reported license expiry
+  bounds offline use of an older token.
+- A background offline-token sync that started before a reset, deactivation,
+  rejection or new activation can no longer write its token back.
+- A malformed offline token (e.g. a null entitlement) fails closed instead of
+  throwing.
 
 ### Changed
 
