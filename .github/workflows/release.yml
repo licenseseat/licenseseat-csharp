@@ -118,6 +118,7 @@ jobs:
           dotnet test tests/LicenseSeat.Tests/LicenseSeat.Tests.csproj
           --configuration Release
           --no-build
+          --framework net9.0
           --collect:"XPlat Code Coverage"
           --results-directory artifacts/coverage
           --logger "trx;LogFileName=release-tests.trx"

@@ -71,7 +71,7 @@ That's it. You're licensed.
 dotnet add package LicenseSeat
 ```
 
-**Requirements:** a runtime implementing .NET Standard 2.0. CI exercises the package on currently supported .NET SDK/runtime lines; validate older .NET Framework hosts in your own target environment before shipping.
+**Requirements:** a runtime implementing .NET Standard 2.0. CI runs the full test suite on .NET 9 (Linux, macOS, Windows) and on **.NET Framework 4.8** (Windows). On .NET Framework, enable `AutoGenerateBindingRedirects` in your executable (the SDK default for SDK-style projects) because System.Text.Json brings newer System.Memory/Unsafe assemblies.
 
 ### Unity
 
