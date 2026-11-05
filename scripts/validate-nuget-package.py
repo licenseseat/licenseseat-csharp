@@ -87,7 +87,7 @@ def validate_package(package: Path, expected_version: str) -> None:
         core_properties = [
             name
             for name in names
-            if re.fullmatch(r"package/services/metadata/core-properties/[0-9a-f]{32}\.psmdcp", name)
+            if re.fullmatch(r"package/services/metadata/core-properties/(?:[0-9a-f]{32}|nuget)\.psmdcp", name)
         ]
         expected = EXPECTED_FILES | set(core_properties)
         if len(core_properties) != 1 or set(names) != expected:
