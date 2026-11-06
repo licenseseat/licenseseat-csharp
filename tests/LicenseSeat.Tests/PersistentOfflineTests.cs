@@ -1042,6 +1042,57 @@ public sealed class PersistentOfflineTests : IDisposable
         Assert.True(client.HasEntitlement("pro_feature"));
     }
 
+    // Sol review of 5f7c1c7, items 1 and 4.
+
+    [Fact]
+    public async Task Denial_ThrownByHeartbeat_BlocksOfflineUse()
+    {
+        Seed(SignToken());
+        var server = new FakeServer(this) { HeartbeatStatus = 422, HeartbeatBody = ThrownDenial("not_entitled") };
+        using var client = CreateClient(server, pinKey: true);
+
+        await Assert.ThrowsAsync<ApiException>(() => client.HeartbeatAsync());
+        server.GoOffline();
+        var result = await client.ValidateAsync(LicenseKey);
+
+        Assert.False(result.Valid);
+        Assert.Equal("not_entitled", result.Code);
+    }
+
+    [Fact]
+    public async Task Denial_ThrownByTheOfflineTokenEndpoint_BlocksOfflineUse()
+    {
+        Seed(SignToken());
+        var server = new FakeServer(this) { OfflineTokenStatus = 422, OfflineTokenBody = ThrownDenial("not_entitled") };
+        using var client = CreateClient(server, pinKey: true);
+        var fetchFailed = WaitFor(client, LicenseSeatEvents.OfflineLicenseFetchError);
+
+        await client.ActivateAsync(LicenseKey);
+        await fetchFailed;
+        server.GoOffline();
+        var result = await client.ValidateAsync(LicenseKey);
+
+        Assert.False(result.Valid);
+        Assert.Equal("not_entitled", result.Code);
+    }
+
+    [Fact]
+    public async Task Denial_IsRecordedEvenWhenItsLicensePayloadFailsValidation()
+    {
+        Seed(SignToken());
+        var body = Denial("product_mismatch").Replace($"\"slug\":\"{ProductSlug}\"", "\"slug\":\"another-product\"", StringComparison.Ordinal);
+        Assert.Contains("another-product", body, StringComparison.Ordinal);
+        var server = new FakeServer(this) { ValidationBody = body };
+        using var client = CreateClient(server, pinKey: true);
+
+        await Assert.ThrowsAsync<ApiException>(() => client.ValidateAsync(LicenseKey));
+        server.GoOffline();
+        var result = await client.ValidateAsync(LicenseKey);
+
+        Assert.False(result.Valid);
+        Assert.Equal("product_mismatch", result.Code);
+    }
+
     private sealed class DenialWriteFails(ILicenseStore inner) : ILicenseStore
     {
         public string? Read(string entryName) => inner.Read(entryName);
@@ -1246,6 +1297,14 @@ public sealed class PersistentOfflineTests : IDisposable
 
         internal int ActivationStatus { get; set; } = 200;
 
+        internal int HeartbeatStatus { get; set; } = 200;
+
+        internal string? HeartbeatBody { get; set; }
+
+        internal int OfflineTokenStatus { get; set; } = 200;
+
+        internal string? OfflineTokenBody { get; set; }
+
         internal string? ActivationBody { get; set; }
 
         // After this many validation responses, the network goes away.
@@ -1328,8 +1387,18 @@ public sealed class PersistentOfflineTests : IDisposable
                 return new HttpResponse(ValidationStatus, ValidationBody ?? TestResponses.ValidValidation(LicenseKey, ProductSlug));
             }
 
+            if (url.EndsWith("/licenses/heartbeat", StringComparison.Ordinal))
+            {
+                return new HttpResponse(HeartbeatStatus, HeartbeatBody ?? TestResponses.Heartbeat(LicenseKey, ProductSlug));
+            }
+
             if (url.EndsWith("/licenses/offline-token", StringComparison.Ordinal))
             {
+                if (OfflineTokenBody != null)
+                {
+                    return new HttpResponse(OfflineTokenStatus, OfflineTokenBody);
+                }
+
                 if (OfflineTokensUnavailable)
                 {
                     return new HttpResponse(503, "{\"error\":{\"code\":\"unavailable\",\"message\":\"unavailable\"}}");

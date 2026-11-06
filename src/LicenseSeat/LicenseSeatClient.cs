@@ -336,6 +336,18 @@ namespace LicenseSeat
                 ).ConfigureAwait(false);
 
                 operationToken.ThrowIfCancellationRequested();
+                // A denial is the server's decision even when the rest of the
+                // payload fails validation (e.g. product_mismatch carrying the
+                // license's actual, different product): record it first.
+                if (response.Object == "validation_result" && !response.Valid &&
+                    IsAuthoritativeDenial(response.Code))
+                {
+                    RecordAuthoritativeDenial(
+                        licenseKey,
+                        response.Code!,
+                        SecurityValidation.IsSafeText(response.Message, 1, 4096) ? response.Message : null);
+                }
+
                 ValidateValidationResponse(response, licenseKey, fingerprint);
 
                 var result = new ValidationResult
@@ -735,6 +747,7 @@ namespace LicenseSeat
             }
             catch (Exception ex)
             {
+                RecordIfAuthoritativeDenial(license.Key, ex);
                 _eventBus.Emit(LicenseSeatEvents.HeartbeatError, new { Error = ex });
                 throw;
             }
@@ -1007,6 +1020,7 @@ namespace LicenseSeat
             }
             catch (Exception ex)
             {
+                RecordIfAuthoritativeDenial(licenseKey, ex);
                 _eventBus.Emit(LicenseSeatEvents.OfflineLicenseFetchError, new { LicenseKey = licenseKey, Error = ex });
                 throw;
             }
@@ -1759,6 +1773,15 @@ namespace LicenseSeat
             {
                 _sessionGeneration++;
                 Interlocked.Exchange(ref _offlineAuthorityUntil, 0);
+            }
+        }
+
+        /// <summary>Records <paramref name="error"/> as a denial when it carries an authoritative denial code.</summary>
+        private void RecordIfAuthoritativeDenial(string licenseKey, Exception error)
+        {
+            if (error is ApiException apiError && apiError.StatusCode != 0 && IsAuthoritativeDenial(apiError.Code))
+            {
+                RecordAuthoritativeDenial(licenseKey, apiError.Code!, apiError.Message);
             }
         }
 

@@ -54,6 +54,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   later network failure; an offline verification already in flight cannot
   publish over a denial that lands meanwhile; and a denial for a license other
   than the cached one leaves the cached license's offline authority alone.
+  Heartbeat and offline-token errors carrying a denial code are recorded the
+  same way, and a `valid: false` denial is recorded even when the rest of its
+  payload (e.g. the license's actual, different product) fails validation.
 - `GetStatus()` / `HasEntitlement()` stop reporting offline access once the
   verified token's window (exp, license expiry, `MaxOfflineDays`) closes.
 - Successful online validation refreshes a stale offline token (older than
