@@ -5,7 +5,13 @@ All notable changes to the LicenseSeat Unity SDK will be documented in this file
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.6.0] - Unreleased
+## [0.6.0] - 2026-11-06
+
+### Security
+
+- Offline tokens with a zero-width validity window (`nbf == exp`) are
+  rejected; the clock-skew tolerance on `nbf` made such a never-valid grant
+  usable for up to five minutes (#39).
 
 ### Added
 
@@ -37,8 +43,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unchanged (pinned by a golden test), so upgrading from 0.5.x presents the
   same fingerprint. An unreadable device record blocks activation
   (`device_identity_unavailable`) instead of silently creating a new device.
-- An authoritative online rejection (`valid: false`) now discards the offline
-  token, so it cannot authorize offline use after a revocation.
+- An authoritative online rejection (`valid: false`) of the cached license now
+  discards its offline token, so it cannot authorize offline use after a
+  revocation. Rejecting an unrelated key leaves the cached license alone.
 - Offline fallback is bound to the requested license key and device, not
   whatever the cache holds.
 - `GetStatus()` / `HasEntitlement()` stop reporting offline access once the

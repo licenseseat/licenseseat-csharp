@@ -379,21 +379,27 @@ namespace LicenseSeat
                 {
                     // An authoritative online rejection retires the offline
                     // token, so it cannot outlive the revocation (including
-                    // across a restart, now that tokens persist).
-                    WithdrawOfflineAuthority();
-                    var revokedToken = _cache.GetOfflineToken();
-                    if (revokedToken?.Token != null && isCachedLicense)
+                    // across a restart, now that tokens persist). Like the
+                    // success path, this applies only to the cached license:
+                    // rejecting an unrelated key must not touch its grant.
+                    if (isCachedLicense || cachedLicense == null)
                     {
-                        // A restored copy of the revoked token is never loaded again.
-                        _cache.RetireTokensIssuedAtOrBefore(revokedToken.Token.Iat);
+                        WithdrawOfflineAuthority();
+                        var revokedToken = _cache.GetOfflineToken();
+                        if (revokedToken?.Token != null && isCachedLicense)
+                        {
+                            // A restored copy of the revoked token is never loaded again.
+                            _cache.RetireTokensIssuedAtOrBefore(revokedToken.Token.Iat);
+                        }
+
+                        _cache.ClearOfflineToken();
+                        StopAutoValidation();
+                        StopHeartbeat();
+                        StopOfflineRefresh();
+                        _currentAutoLicenseKey = null;
                     }
 
-                    _cache.ClearOfflineToken();
                     _eventBus.Emit(LicenseSeatEvents.ValidationFailed, result);
-                    StopAutoValidation();
-                    StopHeartbeat();
-                    StopOfflineRefresh();
-                    _currentAutoLicenseKey = null;
                 }
 
                 return result;
