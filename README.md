@@ -71,7 +71,7 @@ That's it. You're licensed.
 dotnet add package LicenseSeat
 ```
 
-**Requirements:** a runtime implementing .NET Standard 2.0. CI exercises the package on currently supported .NET SDK/runtime lines; validate older .NET Framework hosts in your own target environment before shipping.
+**Requirements:** a runtime implementing .NET Standard 2.0. CI runs the full test suite on .NET 9 (Linux, macOS, Windows) and on **.NET Framework 4.8** (Windows). On .NET Framework, enable `AutoGenerateBindingRedirects` in your executable (the SDK default for SDK-style projects) because System.Text.Json brings newer System.Memory/Unsafe assemblies.
 
 ### Unity
 
@@ -550,6 +550,11 @@ Unit tests run offline and test internal SDK logic:
 ```bash
 dotnet test tests/LicenseSeat.Tests
 ```
+
+On Windows this runs the suite on both .NET 9 and .NET Framework 4.8. On
+macOS/Linux it runs .NET 9 only: net48 is still compiled there (so the lock file
+is identical everywhere) but is not a test target. To run a single framework:
+`dotnet test tests/LicenseSeat.Tests --framework net9.0` (or `net48`, Windows only).
 
 #### Integration Tests (Stress Tests)
 
