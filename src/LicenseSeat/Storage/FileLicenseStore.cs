@@ -83,18 +83,29 @@ namespace LicenseSeat
             // record" into "no device record" and activate a new device. Only a
             // genuinely missing file or directory means absent; anything else
             // throws and is treated as a (possibly transient) read fault.
+            // On Windows (notably .NET Framework) opening the file while a
+            // concurrent File.Replace swaps it is a sharing violation; retry
+            // briefly, exactly like Write and Delete, before reporting a fault.
             FileStream opened;
-            try
+            for (var attempt = 1; ; attempt++)
             {
-                opened = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-            }
-            catch (FileNotFoundException)
-            {
-                return null;
-            }
-            catch (DirectoryNotFoundException)
-            {
-                return null;
+                try
+                {
+                    opened = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                    break;
+                }
+                catch (FileNotFoundException)
+                {
+                    return null;
+                }
+                catch (DirectoryNotFoundException)
+                {
+                    return null;
+                }
+                catch (Exception ex) when ((ex is IOException || ex is UnauthorizedAccessException) && attempt < 5)
+                {
+                    System.Threading.Thread.Sleep(20 * attempt);
+                }
             }
 
             // Share write and delete so a concurrent atomic replace (or a
