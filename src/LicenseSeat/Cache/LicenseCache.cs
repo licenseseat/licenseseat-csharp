@@ -163,17 +163,31 @@ namespace LicenseSeat
         }
 
         /// <summary>
-        /// Records the server's latest authoritative denial for a license. It is
-        /// the current decision: offline fallback must not override it, in this
-        /// process or after a relaunch, until an online success clears it. The
-        /// offline grant itself is kept.
+        /// Records the server's latest authoritative denial for the cached
+        /// license. It is the current decision: offline fallback must not
+        /// override it, in this process or after a relaunch, until an online
+        /// success for that license clears it. The offline grant is kept in
+        /// memory; if the denial cannot be persisted, the persisted grant is
+        /// retired instead so a relaunch cannot revive it.
         /// </summary>
         public void SetDenial(string licenseKey, string code)
         {
             lock (_lock)
             {
+                // Offline fallback only ever serves the cached license, so a
+                // denial for any other key has nothing to protect and must not
+                // displace the cached license's denial.
+                if (_license == null || !string.Equals(_license.Key, licenseKey, StringComparison.Ordinal))
+                {
+                    return;
+                }
+
                 _denial = new DenialRecord { Version = RecordVersion, LicenseKey = licenseKey, Code = code };
-                Persist(DenialEntry, JsonSerializer.Serialize(_denial, JsonOptions));
+                if (_store != null && !Persist(DenialEntry, JsonSerializer.Serialize(_denial, JsonOptions)))
+                {
+                    _log("Could not persist the denial; retiring the persisted offline token so a relaunch cannot override it.");
+                    Remove(OfflineTokenEntry);
+                }
             }
         }
 
@@ -188,22 +202,39 @@ namespace LicenseSeat
             }
         }
 
-        /// <summary>Clears a recorded denial after an online success.</summary>
-        public void ClearDenial()
+        /// <summary>Clears a denial recorded for <paramref name="licenseKey"/> after an online success.</summary>
+        public void ClearDenial(string licenseKey)
         {
             lock (_lock)
             {
-                ClearDenialLocked();
+                if (_denial != null)
+                {
+                    if (string.Equals(_denial.LicenseKey, licenseKey, StringComparison.Ordinal))
+                    {
+                        ClearDenialLocked();
+                    }
+
+                    return;
+                }
+
+                if (_store == null)
+                {
+                    return;
+                }
+
+                // A persisted denial that was not hydrated (its license failed to
+                // load) must still be cleared, or a later relaunch would resurrect it.
+                var persisted = Load<DenialRecord>(DenialEntry, out var transient, out var present);
+                if (present && (transient || persisted == null ||
+                                string.Equals(persisted.LicenseKey, licenseKey, StringComparison.Ordinal)))
+                {
+                    Remove(DenialEntry);
+                }
             }
         }
 
         private void ClearDenialLocked()
         {
-            if (_denial == null)
-            {
-                return;
-            }
-
             _denial = null;
             Remove(DenialEntry);
         }
@@ -483,16 +514,16 @@ namespace LicenseSeat
                     ActivatedAt = record.ActivatedAt
                 };
 
-                var denial = Load<DenialRecord>(DenialEntry, out var denialUnreadable);
-                if (denialUnreadable)
+                var denial = Load<DenialRecord>(DenialEntry, out var denialUnreadable, out var denialPresent);
+                var denialValid = denial != null && denial.Version == RecordVersion &&
+                                  SecurityValidation.IsSafeIdentifier(denial.Code, 1, 100);
+                if (denialPresent && (denialUnreadable || !denialValid))
                 {
                     // Cannot tell whether the server's last word was a denial:
                     // fail closed for offline use until an online validation.
                     _denial = new DenialRecord { Version = RecordVersion, LicenseKey = record.Key, Code = "denial_state_unreadable" };
                 }
-                else if (denial != null && denial.Version == RecordVersion &&
-                         string.Equals(denial.LicenseKey, record.Key, StringComparison.Ordinal) &&
-                         SecurityValidation.IsSafeIdentifier(denial.Code, 1, 100))
+                else if (denialValid && string.Equals(denial!.LicenseKey, record.Key, StringComparison.Ordinal))
                 {
                     _denial = denial;
                 }
@@ -555,7 +586,15 @@ namespace LicenseSeat
         private T? Load<T>(string entry, out bool transientFault)
             where T : class
         {
+            return Load<T>(entry, out transientFault, out _);
+        }
+
+        // present: the entry exists (or might: a read fault counts as present).
+        private T? Load<T>(string entry, out bool transientFault, out bool present)
+            where T : class
+        {
             transientFault = false;
+            present = true;
             string? text;
             try
             {
@@ -574,8 +613,10 @@ namespace LicenseSeat
                 return null;
             }
 
-            if (text == null)
+            if (text == null || string.Equals(text, Tombstone, StringComparison.Ordinal))
             {
+                // Absent, or deleted via tombstone when a delete failed.
+                present = false;
                 return null;
             }
 
@@ -595,20 +636,22 @@ namespace LicenseSeat
             }
         }
 
-        private void Persist(string entry, string contents)
+        private bool Persist(string entry, string contents)
         {
             if (_store == null)
             {
-                return;
+                return false;
             }
 
             try
             {
                 _store.Write(EntryName(entry), contents);
+                return true;
             }
             catch (Exception ex)
             {
                 _log($"Failed to persist '{entry}' ({ex.GetType().Name}); continuing with the in-memory value.");
+                return false;
             }
         }
 

@@ -659,6 +659,110 @@ public sealed class PersistentOfflineTests : IDisposable
     // Helpers.
     // ------------------------------------------------------------------
 
+
+    // Candidate gaps raised by the Sol review (quota-truncated); each verified here.
+
+    [Fact]
+    public async Task Denial_SuccessForAnotherLicenseDoesNotClearIt()
+    {
+        Seed(SignToken());
+        var server = new FakeServer(this) { ValidationBody = Denial("not_entitled") };
+        using var client = CreateClient(server, pinKey: true);
+        Assert.False((await client.ValidateAsync(LicenseKey)).Valid);
+        server.ValidationBody = TestResponses.ValidValidation("OTHER-KEY", ProductSlug);
+        Assert.True((await client.ValidateAsync("OTHER-KEY")).Valid);
+        server.GoOffline();
+        Assert.False((await client.ValidateAsync(LicenseKey)).Valid);
+    }
+
+    [Fact]
+    public async Task Denial_ForAnotherLicenseDoesNotEraseIt()
+    {
+        Seed(SignToken());
+        var server = new FakeServer(this) { ValidationBody = Denial("not_entitled") };
+        using var client = CreateClient(server, pinKey: true);
+        Assert.False((await client.ValidateAsync(LicenseKey)).Valid);
+        server.ValidationBody = Denial("product_mismatch").Replace(LicenseKey, "OTHER-KEY", StringComparison.Ordinal);
+        Assert.False((await client.ValidateAsync("OTHER-KEY")).Valid);
+        server.GoOffline();
+        Assert.False((await client.ValidateAsync(LicenseKey)).Valid);
+    }
+
+    [Fact]
+    public async Task Denial_DisablesEntitlementsListedInTheRejection()
+    {
+        Seed(SignToken());
+        var body = Denial("not_entitled").Replace("\"active_entitlements\":[]", "\"active_entitlements\":[{\"key\":\"pro_feature\"}]", StringComparison.Ordinal);
+        Assert.Contains("pro_feature", body, StringComparison.Ordinal);
+        using var client = CreateClient(new FakeServer(this) { ValidationBody = body }, pinKey: true);
+        Assert.False((await client.ValidateAsync(LicenseKey)).Valid);
+        Assert.False(client.GetStatus().IsValid);
+        Assert.False(client.HasEntitlement("pro_feature"));
+    }
+
+    [Fact]
+    public async Task Denial_CorruptPersistedRecordFailsClosed()
+    {
+        Seed(SignToken());
+        using (var client = CreateClient(new FakeServer(this) { ValidationBody = Denial("not_entitled") }, pinKey: true))
+        {
+            Assert.False((await client.ValidateAsync(LicenseKey)).Valid);
+        }
+
+        Store().Write("licenseseat_denial", "{broken");
+        using var relaunched = CreateClient(FakeServer.Unreachable(), pinKey: true);
+        Assert.False((await relaunched.ValidateAsync(LicenseKey)).Valid);
+    }
+
+    [Fact]
+    public async Task Denial_OnlineSuccessClearsAPersistedDenialThatWasNotHydrated()
+    {
+        Seed(SignToken());
+        using (var client = CreateClient(new FakeServer(this) { ValidationBody = Denial("not_entitled") }, pinKey: true))
+        {
+            Assert.False((await client.ValidateAsync(LicenseKey)).Valid);
+        }
+
+        using (var client = CreateClient(new FakeServer(this), pinKey: true, store: new FlakyReadStore(Store(), "licenseseat_license", 1)))
+        {
+            Assert.Null(client.GetCurrentLicense());
+            Assert.True((await client.ValidateAsync(LicenseKey)).Valid);
+        }
+
+        using var relaunched = CreateClient(FakeServer.Unreachable(), pinKey: true);
+        Assert.True((await relaunched.ValidateAsync(LicenseKey)).Valid);
+    }
+
+    [Fact]
+    public async Task Denial_FailedPersistDoesNotAllowRelaunchRevival()
+    {
+        Seed(SignToken());
+        using (var client = CreateClient(new FakeServer(this) { ValidationBody = Denial("not_entitled") }, pinKey: true, store: new DenialWriteFails(Store())))
+        {
+            Assert.False((await client.ValidateAsync(LicenseKey)).Valid);
+        }
+
+        using var relaunched = CreateClient(FakeServer.Unreachable(), pinKey: true);
+        Assert.False((await relaunched.ValidateAsync(LicenseKey)).Valid);
+    }
+
+    private sealed class DenialWriteFails(ILicenseStore inner) : ILicenseStore
+    {
+        public string? Read(string entryName) => inner.Read(entryName);
+
+        public void Write(string entryName, string contents)
+        {
+            if (entryName == "licenseseat_denial")
+            {
+                throw new IOException("denial write failed");
+            }
+
+            inner.Write(entryName, contents);
+        }
+
+        public void Delete(string entryName) => inner.Delete(entryName);
+    }
+
     private enum SignedBy
     {
         Vendor,

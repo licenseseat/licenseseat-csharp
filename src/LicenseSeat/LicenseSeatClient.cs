@@ -256,7 +256,7 @@ namespace LicenseSeat
                 license.LastValidated = DateTimeOffset.UtcNow;
 
                 WithdrawOfflineAuthority();
-                _cache.ClearDenial();
+                _cache.ClearDenial(licenseKey);
                 _cache.SetLicense(license);
                 _cache.SetDeviceId(deviceId, derivedFromOsVersion);
                 _cache.UpdateValidation(new ValidationResult { Valid = true, Optimistic = true });
@@ -358,7 +358,7 @@ namespace LicenseSeat
 
                 if (result.Valid)
                 {
-                    _cache.ClearDenial();
+                    _cache.ClearDenial(licenseKey);
                     Interlocked.Exchange(ref _offlineAuthorityUntil, 0);
                     Interlocked.Exchange(ref _serverLicenseExpiresAt, response.License?.ExpiresAt == null
                         ? 0
@@ -581,8 +581,11 @@ namespace LicenseSeat
         {
             ThrowIfDisposed();
             var license = _cache.GetLicense();
-            if (license == null || license.Validation == null || OfflineAuthorityLapsed(license.Validation))
+            if (license == null || license.Validation == null || !license.Validation.Valid ||
+                OfflineAuthorityLapsed(license.Validation))
             {
+                // An invalid validation grants no entitlements, whatever the
+                // rejected response listed.
                 return EntitlementStatus.NoLicense();
             }
 

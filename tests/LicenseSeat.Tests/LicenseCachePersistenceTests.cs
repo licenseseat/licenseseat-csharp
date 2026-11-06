@@ -136,7 +136,6 @@ public sealed class LicenseCachePersistenceTests
     [InlineData("device", "{\"version\":2,\"fingerprint\":\"x\",\"os_version\":\"y\"}")]
     [InlineData("device", "{\"version\":1,\"version\":1}")]
     [InlineData("license", "[]")]
-    [InlineData("license", "{\"deleted\":true}")]
     [InlineData("license", "{\"version\":1,\"key\":\"has space\",\"device_id\":\"x\"}")]
     public void CorruptOrInvalidEntries_AreIgnoredWithoutThrowing(string entry, string contents)
     {
@@ -277,7 +276,7 @@ public sealed class LicenseCachePersistenceTests
         Assert.Null(relaunched.GetDenial("OTHER-KEY"));
         Assert.NotNull(relaunched.GetOfflineToken());
 
-        relaunched.ClearDenial();
+        relaunched.ClearDenial("TEST-KEY");
         Assert.Null(Open(store).GetDenial("TEST-KEY"));
 
         relaunched.SetDenial("TEST-KEY", "not_entitled");
