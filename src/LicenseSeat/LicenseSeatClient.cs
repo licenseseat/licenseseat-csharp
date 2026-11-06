@@ -278,6 +278,11 @@ namespace LicenseSeat
             }
             catch (Exception ex)
             {
+                if (ex is ApiException deniedError && deniedError.StatusCode != 0 && IsAuthoritativeDenial(deniedError.Code))
+                {
+                    RecordAuthoritativeDenial(licenseKey, deniedError.Code!, deniedError.Message);
+                }
+
                 _eventBus.Emit(LicenseSeatEvents.ActivationError, new { LicenseKey = licenseKey, Error = ex });
                 throw;
             }
@@ -383,8 +388,7 @@ namespace LicenseSeat
                     // server's current decision, not a revocation: keep the
                     // grant, but record the denial so no later outage or
                     // relaunch lets the offline grant override it.
-                    WithdrawOfflineAuthority();
-                    _cache.SetDenial(licenseKey, result.Code!.ToLowerInvariant());
+                    RecordAuthoritativeDenial(licenseKey, result.Code!, result.Message);
                     _eventBus.Emit(LicenseSeatEvents.ValidationFailed, result);
                     StopAutoValidation();
                     StopHeartbeat();
@@ -429,14 +433,7 @@ namespace LicenseSeat
 
                 if (ex is ApiException deniedError && deniedError.StatusCode != 0 && IsAuthoritativeDenial(deniedError.Code))
                 {
-                    var code = deniedError.Code!.ToLowerInvariant();
-                    WithdrawOfflineAuthority();
-                    _cache.SetDenial(licenseKey, code);
-                    var cachedLicense = _cache.GetLicense();
-                    if (cachedLicense != null && cachedLicense.Key == licenseKey)
-                    {
-                        _cache.UpdateValidation(new ValidationResult { Valid = false, Code = code, Message = deniedError.Message });
-                    }
+                    RecordAuthoritativeDenial(licenseKey, deniedError.Code!, deniedError.Message);
                 }
 
                 // Check for offline fallback
@@ -1041,8 +1038,12 @@ namespace LicenseSeat
             return response.PublicKey!;
         }
 
+        /// <summary>Test hook: runs after the denial check, before the result is published.</summary>
+        internal Action? OfflineVerificationTestHook { get; set; }
+
         private Task<ValidationResult> VerifyCachedOfflineAsync(string licenseKey, string? requestedFingerprint)
         {
+            var generation = Volatile.Read(ref _sessionGeneration);
             if (!OfflinePolicyIsEnabled())
             {
                 return Task.FromResult(ValidationResult.OfflineResult(false, "offline_disabled"));
@@ -1055,6 +1056,8 @@ namespace LicenseSeat
             {
                 return Task.FromResult(ValidationResult.OfflineResult(false, denial));
             }
+
+            OfflineVerificationTestHook?.Invoke();
 
             var offlineToken = _cache.GetOfflineToken();
             if (offlineToken == null)
@@ -1178,7 +1181,17 @@ namespace LicenseSeat
                 authorityUntil = Math.Min(authorityUntil, serverLicenseExpiresAt);
             }
 
-            Interlocked.Exchange(ref _offlineAuthorityUntil, authorityUntil);
+            lock (_lock)
+            {
+                // A denial, rejection, reset or new activation since this
+                // verification began wins: never publish over it.
+                if (generation != _sessionGeneration)
+                {
+                    return Task.FromResult(ValidationResult.OfflineResult(false, _cache.GetDenial(licenseKey) ?? "superseded"));
+                }
+
+                Interlocked.Exchange(ref _offlineAuthorityUntil, authorityUntil);
+            }
 
             // Parse entitlements from offline token
             var entitlements = ParseEntitlementsFromOfflineToken(token, nowUnix);
@@ -1276,12 +1289,18 @@ namespace LicenseSeat
 
         private void ValidateValidationResponse(ValidationResponse response, string licenseKey, string? fingerprint)
         {
-            if (response.Object != "validation_result" || response.License == null)
+            // A denial may arrive without a license payload; it is still the
+            // server's decision and must be recorded, not discarded.
+            var licenseOptional = !response.Valid && IsAuthoritativeDenial(response.Code);
+            if (response.Object != "validation_result" || (response.License == null && !licenseOptional))
             {
                 throw InvalidResponse("Validation response is missing its required object or license.");
             }
 
-            ValidateLicenseData(response.License, licenseKey, requireActive: response.Valid);
+            if (response.License != null)
+            {
+                ValidateLicenseData(response.License, licenseKey, requireActive: response.Valid);
+            }
 
             if (!response.Valid && !SecurityValidation.IsSafeIdentifier(response.Code, 1, 128))
             {
@@ -1739,9 +1758,36 @@ namespace LicenseSeat
             lock (_lock)
             {
                 _sessionGeneration++;
+                Interlocked.Exchange(ref _offlineAuthorityUntil, 0);
+            }
+        }
+
+        /// <summary>
+        /// Records a server denial as the current decision for the cached
+        /// license (or when none is cached). A denial for another key changes
+        /// nothing here, including the cached license's offline authority.
+        /// </summary>
+        private void RecordAuthoritativeDenial(string licenseKey, string code, string? message)
+        {
+            var normalized = code.ToLowerInvariant();
+            lock (_lock)
+            {
+                if (!_cache.SetDenial(licenseKey, normalized))
+                {
+                    return;
+                }
+
+                // Under the same lock as the offline publish step, so an offline
+                // verification already in flight cannot publish over the denial.
+                _sessionGeneration++;
+                Interlocked.Exchange(ref _offlineAuthorityUntil, 0);
             }
 
-            Interlocked.Exchange(ref _offlineAuthorityUntil, 0);
+            var cachedLicense = _cache.GetLicense();
+            if (cachedLicense != null && cachedLicense.Key == licenseKey)
+            {
+                _cache.UpdateValidation(new ValidationResult { Valid = false, Code = normalized, Message = message });
+            }
         }
 
         private static readonly HashSet<string> AuthoritativeDenialCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)

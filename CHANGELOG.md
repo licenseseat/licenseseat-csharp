@@ -45,6 +45,11 @@ All notable changes to the LicenseSeat C# SDK will be documented in this file.
   next successful online validation or activation clears the denial. In 0.5.0
   a `valid: false` denial followed by a network failure returned a valid
   offline result.
+  Denials from `ActivateAsync` count too; a `valid: false` denial without a
+  license payload is accepted and recorded; a denial is never retried into a
+  later network failure; an offline verification already in flight cannot
+  publish over a denial that lands meanwhile; and a denial for a license other
+  than the cached one leaves the cached license's offline authority alone.
 - `GetStatus()` / `HasEntitlement()` stop reporting offline access once the
   verified token's window (exp, license expiry, `MaxOfflineDays`) closes.
 - Successful online validation refreshes a stale offline token (older than

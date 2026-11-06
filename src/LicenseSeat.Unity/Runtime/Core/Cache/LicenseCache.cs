@@ -85,6 +85,7 @@ namespace LicenseSeat
         private readonly Dictionary<string, string> _publicKeys = new Dictionary<string, string>(StringComparer.Ordinal);
         private long _lastSeenTimestamp;
         private DenialRecord? _denial;
+        private bool _persistedTokenRetiredForDenial;
         private long _retiredTokenIat;
         private long _serverLicenseExpiresAt;
 
@@ -219,24 +220,35 @@ namespace LicenseSeat
         /// memory; if the denial cannot be persisted, the persisted grant is
         /// retired instead so a relaunch cannot revive it.
         /// </summary>
-        public void SetDenial(string licenseKey, string code)
+        /// <returns>
+        /// <c>true</c> when the denial applies here: it is for the cached
+        /// license, or no license is cached (e.g. the persisted one could not be
+        /// read this launch, and may be this key on the next).
+        /// </returns>
+        public bool SetDenial(string licenseKey, string code)
         {
             lock (_lock)
             {
-                // Offline fallback only ever serves the cached license, so a
-                // denial for any other key has nothing to protect and must not
-                // displace the cached license's denial.
-                if (_license == null || !string.Equals(_license.Key, licenseKey, StringComparison.Ordinal))
+                // A denial for a key other than the cached license has nothing to
+                // protect (offline fallback only serves the cached license) and
+                // must not displace that license's own denial.
+                if (_license != null && !string.Equals(_license.Key, licenseKey, StringComparison.Ordinal))
                 {
-                    return;
+                    return false;
                 }
 
                 _denial = new DenialRecord { Version = RecordVersion, LicenseKey = licenseKey, Code = code };
                 if (_store != null && !Persist(DenialEntry, JsonSerializer.Serialize(_denial, JsonOptions)))
                 {
-                    _log("Could not persist the denial; retiring the persisted offline token so a relaunch cannot override it.");
+                    // Fail closed without losing the grant: retire only the
+                    // persisted copy; the in-memory grant stays, and is written
+                    // back when an online success clears the denial.
+                    _log("Could not persist the denial; retiring the persisted offline token until the denial clears.");
                     Remove(OfflineTokenEntry);
+                    _persistedTokenRetiredForDenial = true;
                 }
+
+                return true;
             }
         }
 
@@ -286,6 +298,14 @@ namespace LicenseSeat
         {
             _denial = null;
             Remove(DenialEntry);
+            if (_persistedTokenRetiredForDenial)
+            {
+                _persistedTokenRetiredForDenial = false;
+                if (_offlineToken != null)
+                {
+                    Persist(OfflineTokenEntry, JsonSerializer.Serialize(_offlineToken, JsonOptions));
+                }
+            }
         }
 
         /// <summary>Updates validation state using defensive copies.</summary>
@@ -615,6 +635,7 @@ namespace LicenseSeat
 
                 var denial = Load<DenialRecord>(DenialEntry, out var denialUnreadable, out var denialPresent);
                 var denialValid = denial != null && denial.Version == RecordVersion &&
+                                  SecurityValidation.IsAsciiPrintable(denial.LicenseKey, 1, 512) &&
                                   SecurityValidation.IsSafeIdentifier(denial.Code, 1, 100);
                 if (denialPresent && (denialUnreadable || !denialValid))
                 {

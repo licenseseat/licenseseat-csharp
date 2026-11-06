@@ -902,13 +902,144 @@ public sealed class PersistentOfflineTests : IDisposable
     public async Task Denial_FailedPersistDoesNotAllowRelaunchRevival()
     {
         Seed(SignToken());
-        using (var client = CreateClient(new FakeServer(this) { ValidationBody = Denial("not_entitled") }, pinKey: true, store: new DenialWriteFails(Store())))
+        var server = new FakeServer(this) { ValidationBody = Denial("not_entitled"), OfflineTokensUnavailable = true };
+        using (var client = CreateClient(server, pinKey: true, store: new DenialWriteFails(Store())))
         {
+            Assert.False((await client.ValidateAsync(LicenseKey)).Valid);
+            Assert.NotNull(GetCacheToken(client)); // the grant is retained in memory
+
+            using (var relaunchedWhileDenied = CreateClient(FakeServer.Unreachable(), pinKey: true))
+            {
+                Assert.False((await relaunchedWhileDenied.ValidateAsync(LicenseKey)).Valid);
+            }
+
+            // The denial clears online; the retained grant is persisted again
+            // (no refresh is possible here, so it must be the original grant).
+            server.ValidationBody = null;
+            Assert.True((await client.ValidateAsync(LicenseKey)).Valid);
+        }
+
+        using var relaunched = CreateClient(FakeServer.Unreachable(), pinKey: true);
+        var result = await relaunched.ValidateAsync(LicenseKey);
+        Assert.True(result.Valid, result.Code);
+        Assert.True(result.Offline);
+    }
+
+    // Codex review of cb1d2c8, items 1–7.
+
+    [Fact]
+    public async Task Denial_IsRecordedWhenTheLicenseCouldNotBeHydratedThisLaunch()
+    {
+        Seed(SignToken());
+        using (var client = CreateClient(new FakeServer(this) { ValidationBody = Denial("not_entitled") }, pinKey: true, store: new FlakyReadStore(Store(), "licenseseat_license", 1)))
+        {
+            Assert.Null(client.GetCurrentLicense());
             Assert.False((await client.ValidateAsync(LicenseKey)).Valid);
         }
 
         using var relaunched = CreateClient(FakeServer.Unreachable(), pinKey: true);
-        Assert.False((await relaunched.ValidateAsync(LicenseKey)).Valid);
+        var result = await relaunched.ValidateAsync(LicenseKey);
+        Assert.False(result.Valid);
+        Assert.Equal("not_entitled", result.Code);
+    }
+
+    [Fact]
+    public async Task Denial_ArrivingDuringAnOfflineVerification_IsNotOverwritten()
+    {
+        Seed(SignToken());
+        var server = new FakeServer(this);
+        server.GoOffline();
+        using var client = CreateClient(server, pinKey: true);
+        client.OfflineVerificationTestHook = () =>
+        {
+            client.OfflineVerificationTestHook = null;
+            server.GoOnline(Denial("not_entitled"));
+            Assert.False(client.ValidateAsync(LicenseKey).GetAwaiter().GetResult().Valid);
+            server.GoOffline();
+        };
+
+        var result = await client.ValidateAsync(LicenseKey);
+
+        Assert.False(result.Valid);
+        Assert.False(client.GetStatus().IsValid);
+        Assert.False(client.HasEntitlement("pro_feature"));
+    }
+
+    [Fact]
+    public async Task Denial_ThrownByActivation_BlocksOfflineUse()
+    {
+        Seed(SignToken());
+        var server = new FakeServer(this) { ActivationStatus = 422, ActivationBody = ThrownDenial("product_mismatch") };
+        using var client = CreateClient(server, pinKey: true);
+
+        await Assert.ThrowsAsync<ApiException>(() => client.ActivateAsync(LicenseKey));
+        server.GoOffline();
+        var result = await client.ValidateAsync(LicenseKey);
+
+        Assert.False(result.Valid);
+        Assert.Equal("product_mismatch", result.Code);
+    }
+
+    [Fact]
+    public async Task Denial_WithoutALicensePayload_IsStillRecorded()
+    {
+        Seed(SignToken());
+        var server = new FakeServer(this) { ValidationBody = "{\"object\":\"validation_result\",\"valid\":false,\"code\":\"not_entitled\"}" };
+        using var client = CreateClient(server, pinKey: true);
+
+        var denied = await client.ValidateAsync(LicenseKey);
+        Assert.False(denied.Valid);
+        Assert.Equal("not_entitled", denied.Code);
+
+        server.GoOffline();
+        var result = await client.ValidateAsync(LicenseKey);
+        Assert.False(result.Valid);
+        Assert.Equal("not_entitled", result.Code);
+    }
+
+    [Fact]
+    public async Task Denial_IsNotRetriedIntoANetworkFailure()
+    {
+        Seed(SignToken());
+        var server = new FakeServer(this) { ValidationStatus = 503, ValidationBody = ThrownDenial("not_entitled"), OfflineAfterValidations = 1 };
+        var options = Options(pinKey: true);
+        options.MaxRetries = 2;
+        options.RetryDelay = TimeSpan.FromMilliseconds(1);
+        using var client = new LicenseSeatClient(options, server, () => BeforeUpdate);
+
+        var error = await Assert.ThrowsAsync<ApiException>(() => client.ValidateAsync(LicenseKey));
+        Assert.Equal("not_entitled", error.Code);
+
+        var result = await client.ValidateAsync(LicenseKey);
+        Assert.False(result.Valid);
+        Assert.Equal("not_entitled", result.Code);
+    }
+
+    [Fact]
+    public void Denial_RecordWithoutALicenseKey_FailsClosed()
+    {
+        Seed(SignToken());
+        Store().Write("licenseseat_denial", "{\"version\":1,\"code\":\"not_entitled\"}");
+
+        var cache = new LicenseCache("licenseseat_", Store(), () => BeforeUpdate, Configured, null);
+
+        Assert.Equal("denial_state_unreadable", cache.GetDenial(LicenseKey));
+    }
+
+    [Fact]
+    public async Task Denial_ForAnotherLicense_LeavesTheCachedLicensesOfflineAuthority()
+    {
+        Seed(SignToken());
+        var server = new FakeServer(this);
+        server.GoOffline();
+        using var client = CreateClient(server, pinKey: true);
+        Assert.True((await client.ValidateAsync(LicenseKey)).Valid);
+
+        server.GoOnline(Denial("not_entitled").Replace(LicenseKey, "OTHER-KEY", StringComparison.Ordinal));
+        Assert.False((await client.ValidateAsync("OTHER-KEY")).Valid);
+
+        Assert.Equal(LicenseStatusType.OfflineValid, client.GetStatus().StatusType);
+        Assert.True(client.HasEntitlement("pro_feature"));
     }
 
     private sealed class DenialWriteFails(ILicenseStore inner) : ILicenseStore
@@ -1107,6 +1238,21 @@ public sealed class PersistentOfflineTests : IDisposable
 
         internal void GoOffline() => _unreachable = true;
 
+        internal void GoOnline(string validationBody)
+        {
+            ValidationBody = validationBody;
+            _unreachable = false;
+        }
+
+        internal int ActivationStatus { get; set; } = 200;
+
+        internal string? ActivationBody { get; set; }
+
+        // After this many validation responses, the network goes away.
+        internal int OfflineAfterValidations { get; set; } = int.MaxValue;
+
+        private int _validations;
+
         internal string? ValidationBody { get; set; }
 
         internal int ValidationStatus { get; set; } = 200;
@@ -1163,12 +1309,22 @@ public sealed class PersistentOfflineTests : IDisposable
 
             if (url.EndsWith("/licenses/activate", StringComparison.Ordinal))
             {
+                if (ActivationBody != null)
+                {
+                    return new HttpResponse(ActivationStatus, ActivationBody);
+                }
+
                 LastFingerprint = fingerprint;
                 return new HttpResponse(200, TestResponses.Activation(LicenseKey, fingerprint!, ProductSlug));
             }
 
             if (url.EndsWith("/licenses/validate", StringComparison.Ordinal))
             {
+                if (Interlocked.Increment(ref _validations) > OfflineAfterValidations)
+                {
+                    return new HttpResponse(0, "offline");
+                }
+
                 return new HttpResponse(ValidationStatus, ValidationBody ?? TestResponses.ValidValidation(LicenseKey, ProductSlug));
             }
 
