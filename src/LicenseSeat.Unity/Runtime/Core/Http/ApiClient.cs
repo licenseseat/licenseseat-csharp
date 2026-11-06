@@ -281,7 +281,9 @@ namespace LicenseSeat
 
         private static bool ShouldRetry(ApiException error)
         {
-            return error.IsRetryable;
+            // An authoritative denial is the answer, whatever the status: never
+            // retry it into a later network failure that would lose it.
+            return error.IsRetryable && !LicenseSeatClient.IsAuthoritativeDenial(error.Code);
         }
 
         private TimeSpan CalculateRetryDelay(int attempt)

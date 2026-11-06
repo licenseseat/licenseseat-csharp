@@ -136,7 +136,6 @@ public sealed class LicenseCachePersistenceTests
     [InlineData("device", "{\"version\":2,\"fingerprint\":\"x\",\"os_version\":\"y\"}")]
     [InlineData("device", "{\"version\":1,\"version\":1}")]
     [InlineData("license", "[]")]
-    [InlineData("license", "{\"deleted\":true}")]
     [InlineData("license", "{\"version\":1,\"key\":\"has space\",\"device_id\":\"x\"}")]
     public void CorruptOrInvalidEntries_AreIgnoredWithoutThrowing(string entry, string contents)
     {
@@ -263,6 +262,36 @@ public sealed class LicenseCachePersistenceTests
         Assert.Null(other.GetLicense());
         Assert.Null(other.GetDeviceId());
         Assert.Equal(0, other.GetLastSeenTimestamp());
+    }
+
+    [Fact]
+    public void Denial_IsPersistedPerLicenseAndClearedByOnlineSuccessOrDeactivation()
+    {
+        var store = Seeded();
+        var cache = Open(store);
+        cache.SetDenial("TEST-KEY", "not_entitled");
+
+        var relaunched = Open(store);
+        Assert.Equal("not_entitled", relaunched.GetDenial("TEST-KEY"));
+        Assert.Null(relaunched.GetDenial("OTHER-KEY"));
+        Assert.NotNull(relaunched.GetOfflineToken());
+
+        relaunched.ClearDenial("TEST-KEY");
+        Assert.Null(Open(store).GetDenial("TEST-KEY"));
+
+        relaunched.SetDenial("TEST-KEY", "not_entitled");
+        relaunched.ClearLicense();
+        Assert.False(store.Entries.ContainsKey(Prefix + "denial"));
+    }
+
+    [Fact]
+    public void UnreadableDenialRecord_FailsClosedForOfflineUse()
+    {
+        var store = Seeded();
+        Open(store).SetDenial("TEST-KEY", "product_mismatch");
+        store.FailReadsOf = Prefix + "denial";
+
+        Assert.Equal("denial_state_unreadable", Open(store).GetDenial("TEST-KEY"));
     }
 
     [Fact]

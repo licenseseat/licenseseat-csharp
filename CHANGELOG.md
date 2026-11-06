@@ -44,6 +44,22 @@ All notable changes to the LicenseSeat C# SDK will be documented in this file.
   revocation. Rejecting an unrelated key leaves the cached license alone.
 - Offline fallback is bound to the requested license key and device, not
   whatever the cache holds.
+- An authoritative denial (`version_not_entitled`, `not_entitled`,
+  `product_mismatch`, `floating_not_implemented`, `named_user_not_implemented`,
+  case-insensitive; as `valid: false` or a thrown API error) is recorded as the
+  current decision and persisted with the store. A later outage or relaunch no
+  longer lets the offline grant override it; the grant itself is kept, and the
+  next successful online validation or activation clears the denial. In 0.5.0
+  a `valid: false` denial followed by a network failure returned a valid
+  offline result.
+  Denials from `ActivateAsync` count too; a `valid: false` denial without a
+  license payload is accepted and recorded; a denial is never retried into a
+  later network failure; an offline verification already in flight cannot
+  publish over a denial that lands meanwhile; and a denial for a license other
+  than the cached one leaves the cached license's offline authority alone.
+  Heartbeat and offline-token errors carrying a denial code are recorded the
+  same way, and a `valid: false` denial is recorded even when the rest of its
+  payload (e.g. the license's actual, different product) fails validation.
 - `GetStatus()` / `HasEntitlement()` stop reporting offline access once the
   verified token's window (exp, license expiry, `MaxOfflineDays`) closes.
 - Successful online validation refreshes a stale offline token (older than
