@@ -551,6 +551,11 @@ Unit tests run offline and test internal SDK logic:
 dotnet test tests/LicenseSeat.Tests
 ```
 
+On Windows this runs the suite on both .NET 9 and .NET Framework 4.8. On
+macOS/Linux it runs .NET 9 only: net48 is still compiled there (so the lock file
+is identical everywhere) but is not a test target. To run a single framework:
+`dotnet test tests/LicenseSeat.Tests --framework net9.0` (or `net48`, Windows only).
+
 #### Integration Tests (Stress Tests)
 
 Integration tests run against the live LicenseSeat API and validate the complete SDK functionality:

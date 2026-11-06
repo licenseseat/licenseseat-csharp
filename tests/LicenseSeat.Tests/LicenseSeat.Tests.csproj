@@ -28,6 +28,14 @@
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
   </PropertyGroup>
 
+  <!-- .NET Framework only runs on Windows. Elsewhere net48 is still compiled
+       (so restore and the lock file stay identical on every OS) but is not a
+       test target, so a plain `dotnet test` runs net9.0 instead of failing to
+       find a 'mono' host. -->
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net48' and '$(OS)' != 'Windows_NT'">
+    <IsTestProject>false</IsTestProject>
+  </PropertyGroup>
+
   <ItemGroup Condition="'$(TargetFrameworkIdentifier)' == '.NETFramework'">
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
     <Reference Include="System.Net.Http" />
