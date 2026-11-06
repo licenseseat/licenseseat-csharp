@@ -1,5 +1,6 @@
 #nullable enable
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
@@ -62,6 +63,11 @@ namespace LicenseSeat
             WriteIndented = false
         };
 
+        // Serializes read-merge-write of the rollback floor between cache
+        // instances in this process that share a store (keyed by store
+        // identity + entry name).
+        private static readonly ConcurrentDictionary<string, object> FloorLocks = new ConcurrentDictionary<string, object>(StringComparer.Ordinal);
+
         private readonly object _lock = new object();
         private readonly string _prefix;
         private readonly ILicenseStore? _store;
@@ -77,6 +83,8 @@ namespace LicenseSeat
         private bool _deviceRecordUnreadable;
         private readonly Dictionary<string, string> _publicKeys = new Dictionary<string, string>(StringComparer.Ordinal);
         private long _lastSeenTimestamp;
+        private long _retiredTokenIat;
+        private long _serverLicenseExpiresAt;
 
         /// <summary>
         /// Creates a new in-memory license cache.
@@ -139,14 +147,54 @@ namespace LicenseSeat
             lock (_lock)
             {
                 _license = CloneLicense(license);
-                Persist(LicenseEntry, JsonSerializer.Serialize(new LicenseRecord
-                {
-                    Version = RecordVersion,
-                    Key = _license.Key,
-                    DeviceId = _license.DeviceId,
-                    ActivatedAt = _license.ActivatedAt
-                }, JsonOptions));
+                _serverLicenseExpiresAt = 0;
+                PersistLicenseRecord();
             }
+        }
+
+        /// <summary>
+        /// Records the license expiry the server reported online for the cached
+        /// license (0 = none). Offline use of an older signed token never
+        /// outlasts it, including after a relaunch. Unsigned, so it can only
+        /// shorten what the token's signed claims allow.
+        /// </summary>
+        public void SetServerLicenseExpiry(string licenseKey, long expiresAtUnix)
+        {
+            lock (_lock)
+            {
+                if (_license == null || !string.Equals(_license.Key, licenseKey, StringComparison.Ordinal) ||
+                    _serverLicenseExpiresAt == expiresAtUnix)
+                {
+                    return;
+                }
+
+                _serverLicenseExpiresAt = expiresAtUnix;
+                PersistLicenseRecord();
+            }
+        }
+
+        /// <summary>The server-reported license expiry for <paramref name="licenseKey"/>, or 0.</summary>
+        public long GetServerLicenseExpiry(string licenseKey)
+        {
+            lock (_lock)
+            {
+                return _license != null && string.Equals(_license.Key, licenseKey, StringComparison.Ordinal)
+                    ? _serverLicenseExpiresAt
+                    : 0;
+            }
+        }
+
+        // Caller holds _lock.
+        private void PersistLicenseRecord()
+        {
+            Persist(LicenseEntry, JsonSerializer.Serialize(new LicenseRecord
+            {
+                Version = RecordVersion,
+                Key = _license!.Key,
+                DeviceId = _license.DeviceId,
+                ActivatedAt = _license.ActivatedAt,
+                ServerExpiresAt = _serverLicenseExpiresAt > 0 ? _serverLicenseExpiresAt : (long?)null
+            }, JsonOptions));
         }
 
         /// <summary>Clears the cached license.</summary>
@@ -155,6 +203,7 @@ namespace LicenseSeat
             lock (_lock)
             {
                 _license = null;
+                _serverLicenseExpiresAt = 0;
                 Remove(LicenseEntry);
             }
         }
@@ -347,29 +396,75 @@ namespace LicenseSeat
                 throw new ArgumentOutOfRangeException(nameof(timestamp));
             }
 
-            lock (_lock)
+            UpdateFloor(timestamp, 0);
+        }
+
+        /// <summary>
+        /// Re-reads the persisted rollback floor (another process or instance
+        /// may have advanced it) and returns the effective floor.
+        /// </summary>
+        public long RefreshLastSeenTimestamp()
+        {
+            UpdateFloor(0, 0);
+            return GetLastSeenTimestamp();
+        }
+
+        /// <summary>
+        /// Retires every offline token issued at or before
+        /// <paramref name="issuedAt"/> (a revoked token): a copy of it restored
+        /// into the store is never loaded again.
+        /// </summary>
+        public void RetireTokensIssuedAtOrBefore(long issuedAt)
+        {
+            if (issuedAt > 0)
             {
-                if (timestamp <= _lastSeenTimestamp)
-                {
-                    return;
-                }
+                UpdateFloor(0, issuedAt);
+            }
+        }
 
-                _lastSeenTimestamp = timestamp;
-                if (_store == null)
+        // Monotonic read-merge-write of the floor record: both values only grow.
+        private void UpdateFloor(long lastSeen, long retiredIat)
+        {
+            var floorLock = _store == null
+                ? _lock
+                : FloorLocks.GetOrAdd(_store.ToString() + "|" + EntryName(LastSeenEntry), _ => new object());
+            lock (floorLock)
+            {
+                lock (_lock)
                 {
-                    return;
-                }
+                    var changed = false;
+                    if (_store != null)
+                    {
+                        var stored = Load<LastSeenRecord>(LastSeenEntry, out _);
+                        if (stored != null)
+                        {
+                            _lastSeenTimestamp = Math.Max(_lastSeenTimestamp, stored.LastSeen);
+                            _retiredTokenIat = Math.Max(_retiredTokenIat, stored.RetiredTokenIat);
+                            changed = stored.LastSeen < Math.Max(_lastSeenTimestamp, lastSeen) ||
+                                      stored.RetiredTokenIat < Math.Max(_retiredTokenIat, retiredIat);
+                        }
+                        else
+                        {
+                            changed = lastSeen > 0 || retiredIat > 0 || _lastSeenTimestamp > 0;
+                        }
+                    }
 
-                // Another process sharing the store may have written a later
-                // value; never overwrite it with an earlier one.
-                var stored = Load<LastSeenRecord>(LastSeenEntry, out _);
-                if (stored != null && stored.LastSeen > _lastSeenTimestamp)
-                {
-                    _lastSeenTimestamp = stored.LastSeen;
-                    return;
-                }
+                    _lastSeenTimestamp = Math.Max(_lastSeenTimestamp, lastSeen);
+                    _retiredTokenIat = Math.Max(_retiredTokenIat, retiredIat);
+                    if (_offlineToken?.Token != null && _offlineToken.Token.Iat <= _retiredTokenIat)
+                    {
+                        _offlineToken = null;
+                    }
 
-                Persist(LastSeenEntry, JsonSerializer.Serialize(new LastSeenRecord { LastSeen = _lastSeenTimestamp }, JsonOptions));
+                    if (changed)
+                    {
+                        Persist(LastSeenEntry, JsonSerializer.Serialize(new LastSeenRecord
+                        {
+                            LastSeen = _lastSeenTimestamp,
+                            RetiredTokenIat = _retiredTokenIat
+                        }, JsonOptions));
+                    }
+                }
             }
         }
 
@@ -401,6 +496,7 @@ namespace LicenseSeat
                 if (hasFloor)
                 {
                     _lastSeenTimestamp = lastSeen!.LastSeen;
+                    _retiredTokenIat = Math.Max(0, lastSeen.RetiredTokenIat);
                 }
 
                 HydrateDevice();
@@ -432,6 +528,9 @@ namespace LicenseSeat
                     DeviceId = trusted,
                     ActivatedAt = record.ActivatedAt
                 };
+                _serverLicenseExpiresAt = record.ServerExpiresAt.HasValue && record.ServerExpiresAt.Value > 0
+                    ? record.ServerExpiresAt.Value
+                    : 0;
 
                 if (!hasFloor)
                 {
@@ -442,7 +541,11 @@ namespace LicenseSeat
                 }
 
                 var offlineToken = Load<OfflineTokenResponse>(OfflineTokenEntry, out _);
-                if (offlineToken != null && offlineToken.Object == "offline_token")
+                if (offlineToken?.Token != null && offlineToken.Token.Iat <= _retiredTokenIat)
+                {
+                    _log("Persisted offline token was retired by a revocation; not restoring it.");
+                }
+                else if (offlineToken != null && offlineToken.Object == "offline_token")
                 {
                     // Re-verified in full every time it is used.
                     _offlineToken = offlineToken;
@@ -619,11 +722,15 @@ namespace LicenseSeat
             public string? DeviceId { get; set; }
 
             public DateTimeOffset? ActivatedAt { get; set; }
+
+            public long? ServerExpiresAt { get; set; }
         }
 
         private sealed class LastSeenRecord
         {
             public long LastSeen { get; set; }
+
+            public long RetiredTokenIat { get; set; }
         }
     }
 }

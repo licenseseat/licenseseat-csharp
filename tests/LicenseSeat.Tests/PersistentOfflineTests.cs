@@ -410,6 +410,171 @@ public sealed class PersistentOfflineTests : IDisposable
     }
 
     // ------------------------------------------------------------------
+    // Codex round 2 findings (F2, F5, F6, F7, F12, F13).
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public async Task ClockRollback_DetectsAFloorAdvancedByAnotherInstanceAfterLaunch()
+    {
+        Seed(SignToken());
+        using var client = CreateClient(FakeServer.Unreachable(), pinKey: true);
+        new LicenseCache("licenseseat_", Store(), () => BeforeUpdate, Configured, null)
+            .SetLastSeenTimestamp(DateTimeOffset.UtcNow.AddDays(2).ToUnixTimeSeconds());
+
+        var result = await client.ValidateAsync(LicenseKey);
+
+        Assert.False(result.Valid);
+        Assert.Equal("clock_tamper", result.Code);
+    }
+
+    [Fact]
+    public async Task RevokedToken_RestoredIntoTheStore_IsNotLoadedAgain()
+    {
+        Seed(SignToken());
+        var tokenPath = Path.Combine(_directory, "licenseseat_offline_token.json");
+        var saved = File.ReadAllText(tokenPath);
+        using (var client = CreateClient(new FakeServer(this) { ValidationBody = TestResponses.InvalidValidation(LicenseKey, ProductSlug) }, pinKey: true))
+        {
+            Assert.False((await client.ValidateAsync(LicenseKey)).Valid);
+        }
+
+        File.WriteAllText(tokenPath, saved);
+        using var relaunched = CreateClient(FakeServer.Unreachable(), pinKey: true);
+        var result = await relaunched.ValidateAsync(LicenseKey);
+
+        Assert.False(result.Valid);
+        Assert.Equal("no_offline_license", result.Code);
+    }
+
+    [Fact]
+    public async Task Activation_DoesNotDeriveANewDeviceWhenTheStoreDirectoryWasInaccessibleAtLaunch()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return; // Unix permission bits; Windows ACLs are exercised by the I/O-fault tests.
+        }
+
+        SeedDerived(BeforeUpdate);
+        var server = new FakeServer(this);
+        LicenseSeatClient client;
+        File.SetUnixFileMode(_directory, UnixFileMode.None);
+        try
+        {
+            client = CreateClient(server, pinKey: true, configuredDeviceId: null, environment: AfterUpdate);
+        }
+        finally
+        {
+            File.SetUnixFileMode(_directory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+
+        using (client)
+        {
+            await client.ActivateAsync(LicenseKey);
+        }
+
+        Assert.Equal(Derived(BeforeUpdate), server.LastFingerprint);
+    }
+
+    [Fact]
+    public async Task OnlineValidation_RefreshesATokenPastItsExp()
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        Seed(SignToken(iat: now - 100, exp: now - 1));
+        using var client = CreateClient(new FakeServer(this), pinKey: true);
+        var ready = WaitFor(client, LicenseSeatEvents.OfflineLicenseReady);
+
+        Assert.True((await client.ValidateAsync(LicenseKey)).Valid);
+        await ready;
+
+        Assert.True(GetCacheToken(client)!.Token!.Exp > now);
+    }
+
+    [Fact]
+    public async Task OnlineValidation_RefreshesATokenBeyondTheLocalGraceWindow()
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        Seed(SignToken(iat: now - (2 * 86400)));
+        using var client = CreateClient(new FakeServer(this), pinKey: true, maxOfflineDays: 1);
+        var ready = WaitFor(client, LicenseSeatEvents.OfflineLicenseReady);
+
+        Assert.True((await client.ValidateAsync(LicenseKey)).Valid);
+        await ready;
+
+        Assert.InRange(GetCacheToken(client)!.Token!.Iat, now - 60, now + 60);
+    }
+
+    [Fact]
+    public async Task ServerReportedShorterLicenseExpiry_SurvivesARelaunch()
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        Seed(SignToken(licenseExpiresAt: now + (30 * 86400)));
+        using (var client = CreateClient(new FakeServer(this) { OfflineTokensUnavailable = true, ValidationBody = ExpiringValidation(LicenseKey, now + 2) }, pinKey: true))
+        {
+            Assert.True((await client.ValidateAsync(LicenseKey)).Valid);
+        }
+
+        while (DateTimeOffset.UtcNow.ToUnixTimeSeconds() < now + 2)
+        {
+            await Task.Delay(100);
+        }
+
+        using var relaunched = CreateClient(FakeServer.Unreachable(), pinKey: true);
+        var result = await relaunched.ValidateAsync(LicenseKey);
+
+        Assert.False(result.Valid);
+        Assert.Equal("license_expired", result.Code);
+    }
+
+    [Fact]
+    public async Task ValidatingAnotherLicense_DoesNotLiftTheCachedLicensesExpiryBound()
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        Seed(SignToken(licenseExpiresAt: now + (30 * 86400)));
+        var server = new FakeServer(this) { OfflineTokensUnavailable = true, ValidationBody = ExpiringValidation(LicenseKey, now + 2) };
+        using var client = CreateClient(server, pinKey: true);
+        Assert.True((await client.ValidateAsync(LicenseKey)).Valid);
+
+        server.ValidationBody = TestResponses.ValidValidation("OTHER-KEY", ProductSlug);
+        Assert.True((await client.ValidateAsync("OTHER-KEY")).Valid);
+
+        server.GoOffline();
+        while (DateTimeOffset.UtcNow.ToUnixTimeSeconds() < now + 2)
+        {
+            await Task.Delay(100);
+        }
+
+        var result = await client.ValidateAsync(LicenseKey);
+        Assert.False(result.Valid);
+        Assert.Equal("license_expired", result.Code);
+    }
+
+    [Fact]
+    public async Task ReplacementActivation_StillSyncsAfterAnInFlightSyncIsDiscarded()
+    {
+        var server = new FakeServer(this) { HoldOfflineTokens = true };
+        using var client = CreateClient(server, pinKey: true);
+        await client.ActivateAsync(LicenseKey);
+        await server.OfflineTokenRequested.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+        await client.ActivateAsync(LicenseKey);
+        var ready = WaitFor(client, LicenseSeatEvents.OfflineLicenseReady);
+        server.ReleaseOfflineTokens.SetResult(true);
+        await ready;
+
+        Assert.NotNull(GetCacheToken(client));
+        Assert.True(File.Exists(Path.Combine(_directory, "licenseseat_offline_token.json")));
+    }
+
+    private static string ExpiringValidation(string licenseKey, long expiresAt)
+    {
+        var expiry = DateTimeOffset.FromUnixTimeSeconds(expiresAt).ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture);
+        var body = TestResponses.ValidValidation(licenseKey, ProductSlug)
+            .Replace("\"status\":\"active\",", $"\"status\":\"active\",\"expires_at\":\"{expiry}\",", StringComparison.Ordinal);
+        Assert.Contains(expiry, body, StringComparison.Ordinal);
+        return body;
+    }
+
+    // ------------------------------------------------------------------
     // Fingerprint stability (the seat-burning regression).
     // ------------------------------------------------------------------
 

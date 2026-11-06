@@ -47,6 +47,18 @@ All notable changes to the LicenseSeat C# SDK will be documented in this file.
   rejection or new activation can no longer write its token back.
 - A malformed offline token (e.g. a null entitlement) fails closed instead of
   throwing.
+- A token retired by an online rejection stays retired: a copy restored into
+  the store is not loaded again (the rollback-floor record carries a
+  retired-token watermark).
+- The clock-rollback floor is merged atomically between cache instances in a
+  process and re-read before each offline verification.
+- Refresh also triggers when the token is past `exp` or close to the
+  `MaxOfflineDays` grace limit; the server-reported license expiry is persisted
+  with the license, and only the cached license's own validation updates it.
+- A replacement activation's offline sync is no longer lost when an older
+  in-flight sync is discarded.
+- `FileLicenseStore` no longer treats an inaccessible file or directory as
+  absent (which could activate a new device); it reports a read fault.
 
 ### Changed
 

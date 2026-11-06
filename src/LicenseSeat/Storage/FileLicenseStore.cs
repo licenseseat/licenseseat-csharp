@@ -77,14 +77,29 @@ namespace LicenseSeat
         public string? Read(string entryName)
         {
             var path = PathFor(entryName);
-            if (!File.Exists(path))
+
+            // No File.Exists pre-check: it returns false for a file that exists
+            // but is not accessible, which would turn "cannot read the device
+            // record" into "no device record" and activate a new device. Only a
+            // genuinely missing file or directory means absent; anything else
+            // throws and is treated as a (possibly transient) read fault.
+            FileStream opened;
+            try
+            {
+                opened = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            }
+            catch (FileNotFoundException)
+            {
+                return null;
+            }
+            catch (DirectoryNotFoundException)
             {
                 return null;
             }
 
             // Share write and delete so a concurrent atomic replace (or a
             // revocation's delete) is never blocked by a reader on Windows.
-            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var stream = opened;
             if (stream.Length > MaxEntryBytes)
             {
                 throw new InvalidDataException("Stored entry exceeds the maximum size.");
@@ -147,11 +162,13 @@ namespace LicenseSeat
             {
                 try
                 {
-                    if (File.Exists(path))
-                    {
-                        File.Delete(path);
-                    }
-
+                    // File.Delete is a no-op for a missing file; no File.Exists
+                    // pre-check, which would silently skip an inaccessible one.
+                    File.Delete(path);
+                    return;
+                }
+                catch (DirectoryNotFoundException)
+                {
                     return;
                 }
                 catch (Exception ex) when ((ex is IOException || ex is UnauthorizedAccessException) && attempt < 5)
@@ -160,6 +177,9 @@ namespace LicenseSeat
                 }
             }
         }
+
+        /// <inheritdoc />
+        public override string ToString() => "FileLicenseStore:" + Directory;
 
         private string PathFor(string entryName)
         {

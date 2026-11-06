@@ -313,8 +313,11 @@ the token's `exp`, the license expiry (and any shorter expiry the server reporte
 this process), and `MaxOfflineDays` from the token's issue time. Clock-rollback
 detection persists a last-seen floor, and a token is not restored without it, but a
 user who both edits the store and turns the system clock back can replay an old token
-within its signed window; that is inherent to offline licensing without a trusted
-clock. `GetStatus()` and `HasEntitlement()` stop granting offline access when that
+within its signed window, and restoring a complete earlier snapshot of the store
+directory restores its state; that is inherent to offline licensing without a trusted
+clock or tamper-proof storage. Concurrent writers in *different processes* can race
+on the rollback floor in a narrow window (instances within one process are
+serialized). `GetStatus()` and `HasEntitlement()` stop granting offline access when that
 window closes, even without another `ValidateAsync` call.
 
 ### Godot 4

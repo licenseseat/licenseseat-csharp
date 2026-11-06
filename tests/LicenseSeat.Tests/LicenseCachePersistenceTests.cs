@@ -265,6 +265,77 @@ public sealed class LicenseCachePersistenceTests
         Assert.Equal(0, other.GetLastSeenTimestamp());
     }
 
+    [Fact]
+    public async Task LastSeen_ConcurrentInstancesNeverPersistAnEarlierFloor()
+    {
+        var gated = new GatedStore(new MemoryStore(), Prefix + "last_seen");
+        var first = new LicenseCache(Prefix, gated, () => Machine, null, null);
+        var second = new LicenseCache(Prefix, gated, () => Machine, null, null);
+
+        var slow = Task.Run(() => first.SetLastSeenTimestamp(200));
+        Assert.True(gated.FirstWriteStarted.Wait(TimeSpan.FromSeconds(10)));
+        var fast = Task.Run(() => second.SetLastSeenTimestamp(300));
+        await Task.Delay(200);
+        gated.Release.Set();
+        await Task.WhenAll(slow, fast);
+
+        using var document = JsonDocument.Parse(gated.Inner.Entries[Prefix + "last_seen"]);
+        Assert.Equal(300, document.RootElement.GetProperty("last_seen").GetInt64());
+    }
+
+    [Fact]
+    public void FileStore_InaccessibleDirectory_IsAFaultNotAnAbsence()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var directory = Path.Combine(Path.GetTempPath(), "licenseseat-tests", Guid.NewGuid().ToString("N"));
+        var store = new FileLicenseStore(directory);
+        store.Write("licenseseat_device", "{}");
+        File.SetUnixFileMode(directory, UnixFileMode.None);
+        try
+        {
+            Assert.ThrowsAny<UnauthorizedAccessException>(() => store.Read("licenseseat_device"));
+            Assert.ThrowsAny<UnauthorizedAccessException>(() => store.Delete("licenseseat_device"));
+        }
+        finally
+        {
+            File.SetUnixFileMode(directory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            Directory.Delete(directory, recursive: true);
+        }
+
+        Assert.Null(new FileLicenseStore(directory).Read("licenseseat_device"));
+        new FileLicenseStore(directory).Delete("licenseseat_device");
+    }
+
+    private sealed class GatedStore(MemoryStore inner, string gatedEntry) : ILicenseStore
+    {
+        private int _writes;
+
+        internal MemoryStore Inner => inner;
+
+        internal ManualResetEventSlim FirstWriteStarted { get; } = new ManualResetEventSlim();
+
+        internal ManualResetEventSlim Release { get; } = new ManualResetEventSlim();
+
+        public string? Read(string entryName) => inner.Read(entryName);
+
+        public void Write(string entryName, string contents)
+        {
+            if (entryName == gatedEntry && Interlocked.Increment(ref _writes) == 1)
+            {
+                FirstWriteStarted.Set();
+                Release.Wait(TimeSpan.FromSeconds(10));
+            }
+
+            inner.Write(entryName, contents);
+        }
+
+        public void Delete(string entryName) => inner.Delete(entryName);
+    }
+
     private static LicenseCache Open(MemoryStore store) => new LicenseCache(Prefix, store, () => Machine, null, null);
 
     private static MemoryStore Seeded()
