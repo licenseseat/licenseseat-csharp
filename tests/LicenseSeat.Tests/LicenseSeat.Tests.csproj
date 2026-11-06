@@ -1,10 +1,14 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
+    <!-- net48 is compiled on every OS (reference assemblies) so locked-mode
+         restore produces one lock file everywhere; CI runs it on Windows only. -->
+    <TargetFrameworks>net9.0;net48</TargetFrameworks>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
+    <!-- xunit v3 test projects are executables; the SDK infers this on .NET but not on .NET Framework. -->
+    <OutputType>Exe</OutputType>
     <!-- Most tests exercise SDK default-token behavior intentionally. -->
     <NoWarn>$(NoWarn);xUnit1051</NoWarn>
   </PropertyGroup>
@@ -15,6 +19,27 @@
     <PackageReference Include="xunit.v3" Version="3.2.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.10" />
+  </ItemGroup>
+
+  <!-- The SDK infers RuntimeIdentifier=win-x86 for .NET Framework executables,
+       but only when building on Windows, which would make the lock file differ
+       per OS and break locked-mode restore. Pin it everywhere (64-bit host). -->
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net48'">
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+  </PropertyGroup>
+
+  <!-- .NET Framework only runs on Windows. Elsewhere net48 is still compiled
+       (so restore and the lock file stay identical on every OS) but is not a
+       test target, so a plain `dotnet test` runs net9.0 instead of failing to
+       find a 'mono' host. -->
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net48' and '$(OS)' != 'Windows_NT'">
+    <IsTestProject>false</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(TargetFrameworkIdentifier)' == '.NETFramework'">
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+    <Reference Include="System.Net.Http" />
+    <Using Include="System.Net.Http" />
   </ItemGroup>
 
   <ItemGroup>

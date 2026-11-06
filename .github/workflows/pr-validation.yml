@@ -45,6 +45,7 @@ jobs:
           dotnet test tests/LicenseSeat.Tests/LicenseSeat.Tests.csproj
           --no-build
           --configuration Release
+          --framework net9.0
           --logger "trx;LogFileName=test-results.trx"
 
       - name: Upload test evidence

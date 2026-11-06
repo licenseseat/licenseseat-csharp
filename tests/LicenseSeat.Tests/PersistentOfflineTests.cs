@@ -446,6 +446,7 @@ public sealed class PersistentOfflineTests : IDisposable
         Assert.Equal("no_offline_license", result.Code);
     }
 
+#if NET // Unix permission APIs (File.SetUnixFileMode) are .NET 7+.
     [Fact]
     public async Task Activation_DoesNotDeriveANewDeviceWhenTheStoreDirectoryWasInaccessibleAtLaunch()
     {
@@ -474,6 +475,7 @@ public sealed class PersistentOfflineTests : IDisposable
 
         Assert.Equal(Derived(BeforeUpdate), server.LastFingerprint);
     }
+#endif
 
     [Fact]
     public async Task OnlineValidation_RefreshesATokenPastItsExp()

@@ -47,13 +47,26 @@ jobs:
       - name: Build
         run: dotnet build LicenseSeat.sln --no-restore --configuration Release
 
-      - name: Test
+      - name: Test (.NET 9)
         run: >-
           dotnet test tests/LicenseSeat.Tests/LicenseSeat.Tests.csproj
           --no-build
           --configuration Release
+          --framework net9.0
           --verbosity normal
           --logger "trx;LogFileName=test-results.trx"
+
+      # The test project cross-targets net48 on every OS (reference assemblies
+      # keep one lock file), but .NET Framework only runs on Windows.
+      - name: Test (.NET Framework 4.8)
+        if: runner.os == 'Windows'
+        run: >-
+          dotnet test tests/LicenseSeat.Tests/LicenseSeat.Tests.csproj
+          --no-build
+          --configuration Release
+          --framework net48
+          --verbosity normal
+          --logger "trx;LogFileName=test-results-net48.trx"
 
       - name: Upload test results
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -179,6 +192,7 @@ jobs:
           dotnet test tests/LicenseSeat.Tests/LicenseSeat.Tests.csproj
           --configuration Release
           --no-restore
+          --framework net9.0
           --collect:"XPlat Code Coverage"
           --results-directory artifacts/coverage
           --logger "trx;LogFileName=coverage-tests.trx"
