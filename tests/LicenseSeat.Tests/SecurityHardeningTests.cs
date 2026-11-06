@@ -437,6 +437,35 @@ public class SecurityHardeningTests
         Assert.Equal("expired", result.Code);
     }
 
+    [Fact]
+    public async Task OfflineFallback_RejectsZeroWidthValidityWindow()
+    {
+        // nbf == exp is a grant that is never valid. Inside MaxClockSkew of
+        // that instant, the skew tolerance on nbf used to make it usable (#39).
+        var instant = DateTimeOffset.UtcNow.ToUnixTimeSeconds() + 60;
+        var fixture = CreateOfflineFixture(expiration: instant, notBefore: instant);
+        using var client = CreateOfflineClient(fixture.Response, fixture.PublicKey, new HttpResponse(0, "offline"));
+
+        var result = await client.ValidateAsync("TEST-KEY");
+
+        Assert.False(result.Valid);
+        Assert.Equal("verification_error", result.Code);
+    }
+
+    [Fact]
+    public async Task OfflineFallback_AcceptsOneSecondValidityWindowInsideSkew()
+    {
+        // Boundary control for the zero-width rejection: nbf = exp - 1 is a
+        // real window and stays usable within the clock-skew tolerance.
+        var expiration = DateTimeOffset.UtcNow.ToUnixTimeSeconds() + 60;
+        var fixture = CreateOfflineFixture(expiration: expiration, notBefore: expiration - 1);
+        using var client = CreateOfflineClient(fixture.Response, fixture.PublicKey, new HttpResponse(0, "offline"));
+
+        var result = await client.ValidateAsync("TEST-KEY");
+
+        Assert.True(result.Valid, result.Code);
+    }
+
     [Theory]
     [InlineData(403)]
     [InlineData(408)]
@@ -694,7 +723,8 @@ public class SecurityHardeningTests
     private static OfflineFixture CreateOfflineFixture(
         string productSlug = "test-product",
         string fingerprint = "device-123",
-        long? expiration = null)
+        long? expiration = null,
+        long? notBefore = null)
     {
         var generator = new Ed25519KeyPairGenerator();
         generator.Init(new Ed25519KeyGenerationParameters(new SecureRandom()));
@@ -713,7 +743,7 @@ public class SecurityHardeningTests
             SeatLimit = 1,
             Fingerprint = fingerprint,
             Iat = now - 10,
-            Nbf = now - 10,
+            Nbf = notBefore ?? now - 10,
             Exp = expiration ?? now + 3600,
             LicenseExpiresAt = now + 7200,
             Kid = "offline-v1",

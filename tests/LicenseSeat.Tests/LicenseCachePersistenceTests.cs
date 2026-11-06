@@ -312,6 +312,7 @@ public sealed class LicenseCachePersistenceTests
         Assert.Equal(300, document.RootElement.GetProperty("last_seen").GetInt64());
     }
 
+#if NET // Unix permission APIs (File.SetUnixFileMode) are .NET 7+.
     [Fact]
     public void FileStore_InaccessibleDirectory_IsAFaultNotAnAbsence()
     {
@@ -338,6 +339,7 @@ public sealed class LicenseCachePersistenceTests
         Assert.Null(new FileLicenseStore(directory).Read("licenseseat_device"));
         new FileLicenseStore(directory).Delete("licenseseat_device");
     }
+#endif
 
     private sealed class GatedStore(MemoryStore inner, string gatedEntry) : ILicenseStore
     {

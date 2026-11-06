@@ -558,6 +558,7 @@ public sealed class PersistentOfflineTests : IDisposable
         Assert.Equal("no_offline_license", result.Code);
     }
 
+#if NET // Unix permission APIs (File.SetUnixFileMode) are .NET 7+.
     [Fact]
     public async Task Activation_DoesNotDeriveANewDeviceWhenTheStoreDirectoryWasInaccessibleAtLaunch()
     {
@@ -586,6 +587,7 @@ public sealed class PersistentOfflineTests : IDisposable
 
         Assert.Equal(Derived(BeforeUpdate), server.LastFingerprint);
     }
+#endif
 
     [Fact]
     public async Task OnlineValidation_RefreshesATokenPastItsExp()
@@ -675,6 +677,24 @@ public sealed class PersistentOfflineTests : IDisposable
 
         Assert.NotNull(GetCacheToken(client));
         Assert.True(File.Exists(Path.Combine(_directory, "licenseseat_offline_token.json")));
+    }
+
+    [Fact]
+    public async Task RejectingAnUnrelatedLicense_KeepsTheCachedLicensesOfflineGrant()
+    {
+        Seed(SignToken());
+        var server = new FakeServer(this) { ValidationBody = TestResponses.InvalidValidation("OTHER-KEY", ProductSlug) };
+        using (var client = CreateClient(server, pinKey: true))
+        {
+            Assert.False((await client.ValidateAsync("OTHER-KEY")).Valid);
+            Assert.NotNull(GetCacheToken(client));
+        }
+
+        using var relaunched = CreateClient(FakeServer.Unreachable(), pinKey: true);
+        var result = await relaunched.ValidateAsync(LicenseKey);
+
+        Assert.True(result.Valid, result.Code);
+        Assert.True(result.Offline);
     }
 
     private static string ExpiringValidation(string licenseKey, long expiresAt)

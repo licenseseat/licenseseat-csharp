@@ -411,21 +411,27 @@ namespace LicenseSeat
                 {
                     // An authoritative online rejection retires the offline
                     // token, so it cannot outlive the revocation (including
-                    // across a restart, now that tokens persist).
-                    WithdrawOfflineAuthority();
-                    var revokedToken = _cache.GetOfflineToken();
-                    if (revokedToken?.Token != null && isCachedLicense)
+                    // across a restart, now that tokens persist). Like the
+                    // success path, this applies only to the cached license:
+                    // rejecting an unrelated key must not touch its grant.
+                    if (isCachedLicense || cachedLicense == null)
                     {
-                        // A restored copy of the revoked token is never loaded again.
-                        _cache.RetireTokensIssuedAtOrBefore(revokedToken.Token.Iat);
+                        WithdrawOfflineAuthority();
+                        var revokedToken = _cache.GetOfflineToken();
+                        if (revokedToken?.Token != null && isCachedLicense)
+                        {
+                            // A restored copy of the revoked token is never loaded again.
+                            _cache.RetireTokensIssuedAtOrBefore(revokedToken.Token.Iat);
+                        }
+
+                        _cache.ClearOfflineToken();
+                        StopAutoValidation();
+                        StopHeartbeat();
+                        StopOfflineRefresh();
+                        _currentAutoLicenseKey = null;
                     }
 
-                    _cache.ClearOfflineToken();
                     _eventBus.Emit(LicenseSeatEvents.ValidationFailed, result);
-                    StopAutoValidation();
-                    StopHeartbeat();
-                    StopOfflineRefresh();
-                    _currentAutoLicenseKey = null;
                 }
 
                 return result;
@@ -1530,7 +1536,8 @@ namespace LicenseSeat
 
             const long maxLifetimeSeconds = 100L * 366L * 24L * 60L * 60L;
             if (token.Iat <= 0 || token.Nbf <= 0 || token.Exp <= 0 ||
-                token.Iat > token.Nbf || token.Nbf > token.Exp ||
+                // nbf < exp strictly: a zero-width window is never valid (cross-SDK contract).
+                token.Iat > token.Nbf || token.Nbf >= token.Exp ||
                 token.Exp - token.Iat > maxLifetimeSeconds ||
                 (token.LicenseExpiresAt.HasValue && token.LicenseExpiresAt.Value < token.Iat) ||
                 (token.SeatLimit.HasValue && (token.SeatLimit.Value < 1 || token.SeatLimit.Value > 1_000_000)))
