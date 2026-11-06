@@ -66,9 +66,9 @@ namespace LicenseSeat
         // holds (min of token exp, license expiry and MaxOfflineDays); 0 when
         // the current validation is not offline.
         private long _offlineAuthorityUntil;
-        // License expiry reported by the latest online validation in this
-        // process; an older signed token can never outlast it.
-        private long _serverLicenseExpiresAt;
+        // Set when an offline sync was requested while another was running;
+        // the running sync starts another pass when it finishes.
+        private int _offlineSyncPending;
         private int _autoValidationRunning;
         private int _heartbeatRunning;
         private int _offlineSyncRunning;
@@ -356,16 +356,23 @@ namespace LicenseSeat
                     _cache.UpdateValidation(result);
                 }
 
+                var isCachedLicense = cachedLicense != null && cachedLicense.Key == licenseKey;
                 if (result.Valid)
                 {
                     _cache.ClearDenial(licenseKey);
-                    Interlocked.Exchange(ref _offlineAuthorityUntil, 0);
-                    Interlocked.Exchange(ref _serverLicenseExpiresAt, response.License?.ExpiresAt == null
-                        ? 0
-                        : RequireTimestamp(response.License.ExpiresAt, "license expiry timestamp").ToUnixTimeSeconds());
+                    if (isCachedLicense)
+                    {
+                        // Only the cached license's own validation replaces its
+                        // offline deadline and server-reported expiry.
+                        Interlocked.Exchange(ref _offlineAuthorityUntil, 0);
+                        _cache.SetServerLicenseExpiry(licenseKey, response.License?.ExpiresAt == null
+                            ? 0
+                            : RequireTimestamp(response.License.ExpiresAt, "license expiry timestamp").ToUnixTimeSeconds());
+                    }
+
                     _eventBus.Emit(LicenseSeatEvents.ValidationSuccess, result);
                     _cache.SetLastSeenTimestamp(DateTimeOffset.UtcNow.ToUnixTimeSeconds());
-                    if (cachedLicense != null && cachedLicense.Key == licenseKey && OfflineTokenNeedsRefresh())
+                    if (isCachedLicense && OfflineTokenNeedsRefresh(licenseKey))
                     {
                         _ = SyncOfflineAssetsAsync(licenseKey, _lifetimeToken);
                     }
@@ -390,6 +397,13 @@ namespace LicenseSeat
                     // token, so it cannot outlive the revocation (including
                     // across a restart, now that tokens persist).
                     WithdrawOfflineAuthority();
+                    var revokedToken = _cache.GetOfflineToken();
+                    if (revokedToken?.Token != null && isCachedLicense)
+                    {
+                        // A restored copy of the revoked token is never loaded again.
+                        _cache.RetireTokensIssuedAtOrBefore(revokedToken.Token.Iat);
+                    }
+
                     _cache.ClearOfflineToken();
                     _eventBus.Emit(LicenseSeatEvents.ValidationFailed, result);
                     StopAutoValidation();
@@ -873,11 +887,38 @@ namespace LicenseSeat
 
         private async Task SyncOfflineAssetsAsync(string licenseKey, CancellationToken cancellationToken)
         {
-            if (!OfflinePolicyIsEnabled() || cancellationToken.IsCancellationRequested ||
-                Interlocked.Exchange(ref _offlineSyncRunning, 1) != 0)
+            if (!OfflinePolicyIsEnabled() || cancellationToken.IsCancellationRequested)
             {
                 return;
             }
+
+            if (Interlocked.Exchange(ref _offlineSyncRunning, 1) != 0)
+            {
+                // Don't drop the request: the running sync may belong to a
+                // superseded session and discard its token.
+                Volatile.Write(ref _offlineSyncPending, 1);
+                return;
+            }
+
+            try
+            {
+                do
+                {
+                    Volatile.Write(ref _offlineSyncPending, 0);
+                    await SyncOfflineAssetsOnceAsync(licenseKey, cancellationToken).ConfigureAwait(false);
+                    // A follow-up request is for the current session's license.
+                    licenseKey = _cache.GetLicense()?.Key ?? licenseKey;
+                }
+                while (Volatile.Read(ref _offlineSyncPending) != 0 && !cancellationToken.IsCancellationRequested);
+            }
+            finally
+            {
+                Volatile.Write(ref _offlineSyncRunning, 0);
+            }
+        }
+
+        private async Task SyncOfflineAssetsOnceAsync(string licenseKey, CancellationToken cancellationToken)
+        {
 
             var generation = Volatile.Read(ref _sessionGeneration);
             try
@@ -933,10 +974,6 @@ namespace LicenseSeat
             catch (Exception)
             {
                 Log("Failed to sync offline assets.");
-            }
-            finally
-            {
-                Volatile.Write(ref _offlineSyncRunning, 0);
             }
         }
 
@@ -1077,7 +1114,7 @@ namespace LicenseSeat
                 return Task.FromResult(ValidationResult.OfflineResult(false, "not_yet_valid"));
             }
 
-            var serverLicenseExpiresAt = Interlocked.Read(ref _serverLicenseExpiresAt);
+            var serverLicenseExpiresAt = _cache.GetServerLicenseExpiry(licenseKey);
             if ((token.LicenseExpiresAt.HasValue && token.LicenseExpiresAt.Value <= nowUnix) ||
                 (serverLicenseExpiresAt > 0 && serverLicenseExpiresAt <= nowUnix))
             {
@@ -1114,8 +1151,9 @@ namespace LicenseSeat
                 return Task.FromResult(ValidationResult.OfflineResult(false, ex.ErrorCode ?? "crypto_error"));
             }
 
-            // Clock tamper detection
-            var lastSeenTimestamp = _cache.GetLastSeenTimestamp();
+            // Clock tamper detection, against the freshest persisted floor
+            // (another instance or process may have advanced it).
+            var lastSeenTimestamp = _cache.RefreshLastSeenTimestamp();
             if (lastSeenTimestamp > 0)
             {
                 // If current time is significantly behind the last seen time, clock may have been tampered
@@ -1704,7 +1742,6 @@ namespace LicenseSeat
             }
 
             Interlocked.Exchange(ref _offlineAuthorityUntil, 0);
-            Interlocked.Exchange(ref _serverLicenseExpiresAt, 0);
         }
 
         private static readonly HashSet<string> AuthoritativeDenialCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -1725,7 +1762,7 @@ namespace LicenseSeat
             return code != null && AuthoritativeDenialCodes.Contains(code);
         }
 
-        private bool OfflineTokenNeedsRefresh()
+        private bool OfflineTokenNeedsRefresh(string licenseKey)
         {
             if (!OfflinePolicyIsEnabled())
             {
@@ -1739,10 +1776,16 @@ namespace LicenseSeat
             }
 
             var nowUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-            var serverExpiry = Interlocked.Read(ref _serverLicenseExpiresAt);
+            var refreshSeconds = (long)_options.OfflineLicenseRefreshInterval.TotalSeconds;
+            var maxOfflineSeconds = checked((long)_options.MaxOfflineDays * 24L * 60L * 60L);
+            // The token stops authorizing at the earlier of its exp and the
+            // local MaxOfflineDays grace; refresh well before either.
+            var usableUntil = Math.Min(token.Token.Exp, token.Token.Iat + maxOfflineSeconds);
+            var serverExpiry = _cache.GetServerLicenseExpiry(licenseKey);
             var tokenExpiry = token.Token.LicenseExpiresAt ?? 0;
             return ResolveTrustedPublicKey(token.Signature.KeyId) == null ||
-                   nowUnix - token.Token.Iat >= (long)_options.OfflineLicenseRefreshInterval.TotalSeconds ||
+                   nowUnix - token.Token.Iat >= refreshSeconds ||
+                   usableUntil - nowUnix < refreshSeconds ||
                    serverExpiry != tokenExpiry;
         }
 
