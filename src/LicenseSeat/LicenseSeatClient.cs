@@ -41,7 +41,7 @@ namespace LicenseSeat
         /// <summary>
         /// The current SDK version.
         /// </summary>
-        public const string SdkVersion = "0.5.0";
+        public const string SdkVersion = "0.6.0";
 
         private readonly LicenseSeatClientOptions _options;
         private readonly ApiClient _apiClient;
@@ -58,6 +58,17 @@ namespace LicenseSeat
 #pragma warning restore CS0414, CA1805
         private Timer? _offlineRefreshTimer;
         private string? _currentAutoLicenseKey;
+        private readonly Func<DeviceInputs?> _deviceEnvironment;
+        // Bumped whenever authority is withdrawn or a new session starts, so a
+        // background offline sync that began earlier cannot write a token back.
+        private int _sessionGeneration;
+        // Unix seconds until which the last successful offline verification
+        // holds (min of token exp, license expiry and MaxOfflineDays); 0 when
+        // the current validation is not offline.
+        private long _offlineAuthorityUntil;
+        // Set when an offline sync was requested while another was running;
+        // the running sync starts another pass when it finishes.
+        private int _offlineSyncPending;
         private int _autoValidationRunning;
         private int _heartbeatRunning;
         private int _offlineSyncRunning;
@@ -90,7 +101,8 @@ namespace LicenseSeat
             _lifetimeToken = _lifetimeCancellation.Token;
 
             _eventBus = new EventBus();
-            _cache = new LicenseCache(_options.StoragePrefix);
+            _deviceEnvironment = DeviceIdentifier.CurrentInputs;
+            _cache = new LicenseCache(_options.StoragePrefix, _options.LicenseStore, _deviceEnvironment, _options.DeviceId, Log);
 
             // Use custom HTTP adapter if provided, otherwise use default
             _apiClient = _options.HttpClientAdapter != null
@@ -121,14 +133,16 @@ namespace LicenseSeat
         /// </summary>
         /// <param name="options">Client configuration options.</param>
         /// <param name="httpClient">Custom HTTP client adapter.</param>
-        internal LicenseSeatClient(LicenseSeatClientOptions options, IHttpClientAdapter httpClient)
+        /// <param name="deviceEnvironment">Machine facts override (tests simulate OS updates and other machines).</param>
+        internal LicenseSeatClient(LicenseSeatClientOptions options, IHttpClientAdapter httpClient, Func<DeviceInputs?>? deviceEnvironment = null)
         {
             _options = options?.Clone() ?? throw new ArgumentNullException(nameof(options));
             _options.Validate();
             _lifetimeToken = _lifetimeCancellation.Token;
 
             _eventBus = new EventBus();
-            _cache = new LicenseCache(_options.StoragePrefix);
+            _deviceEnvironment = deviceEnvironment ?? DeviceIdentifier.CurrentInputs;
+            _cache = new LicenseCache(_options.StoragePrefix, _options.LicenseStore, _deviceEnvironment, _options.DeviceId, Log);
             _apiClient = new ApiClient(_options, httpClient);
 
             _apiClient.OnNetworkStatusChange += HandleNetworkStatusChange;
@@ -206,7 +220,7 @@ namespace LicenseSeat
             ValidateLicenseKey(licenseKey, nameof(licenseKey));
 
             options ??= new ActivationOptions();
-            var deviceId = options.DeviceId ?? _options.DeviceId ?? DeviceIdentifier.Generate();
+            var deviceId = ResolveActivationFingerprint(options.DeviceId, out var derivedFromOsVersion);
             ValidateFingerprint(deviceId, nameof(options));
 
             if (options.DeviceName != null && !SecurityValidation.IsSafeText(options.DeviceName, 1, 255))
@@ -241,8 +255,9 @@ namespace LicenseSeat
 
                 license.LastValidated = DateTimeOffset.UtcNow;
 
+                WithdrawOfflineAuthority();
                 _cache.SetLicense(license);
-                _cache.SetDeviceId(deviceId);
+                _cache.SetDeviceId(deviceId, derivedFromOsVersion);
                 _cache.UpdateValidation(new ValidationResult { Valid = true, Optimistic = true });
 
                 // Start auto-validation and heartbeat
@@ -340,18 +355,51 @@ namespace LicenseSeat
                     _cache.UpdateValidation(result);
                 }
 
+                var isCachedLicense = cachedLicense != null && cachedLicense.Key == licenseKey;
                 if (result.Valid)
                 {
+                    if (isCachedLicense)
+                    {
+                        // Only the cached license's own validation replaces its
+                        // offline deadline and server-reported expiry.
+                        Interlocked.Exchange(ref _offlineAuthorityUntil, 0);
+                        _cache.SetServerLicenseExpiry(licenseKey, response.License?.ExpiresAt == null
+                            ? 0
+                            : RequireTimestamp(response.License.ExpiresAt, "license expiry timestamp").ToUnixTimeSeconds());
+                    }
+
                     _eventBus.Emit(LicenseSeatEvents.ValidationSuccess, result);
                     _cache.SetLastSeenTimestamp(DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+                    if (isCachedLicense && OfflineTokenNeedsRefresh(licenseKey))
+                    {
+                        _ = SyncOfflineAssetsAsync(licenseKey, _lifetimeToken);
+                    }
                 }
                 else
                 {
+                    // An authoritative online rejection retires the offline
+                    // token, so it cannot outlive the revocation (including
+                    // across a restart, now that tokens persist). Like the
+                    // success path, this applies only to the cached license:
+                    // rejecting an unrelated key must not touch its grant.
+                    if (isCachedLicense || cachedLicense == null)
+                    {
+                        WithdrawOfflineAuthority();
+                        var revokedToken = _cache.GetOfflineToken();
+                        if (revokedToken?.Token != null && isCachedLicense)
+                        {
+                            // A restored copy of the revoked token is never loaded again.
+                            _cache.RetireTokensIssuedAtOrBefore(revokedToken.Token.Iat);
+                        }
+
+                        _cache.ClearOfflineToken();
+                        StopAutoValidation();
+                        StopHeartbeat();
+                        StopOfflineRefresh();
+                        _currentAutoLicenseKey = null;
+                    }
+
                     _eventBus.Emit(LicenseSeatEvents.ValidationFailed, result);
-                    StopAutoValidation();
-                    StopHeartbeat();
-                    StopOfflineRefresh();
-                    _currentAutoLicenseKey = null;
                 }
 
                 return result;
@@ -373,7 +421,7 @@ namespace LicenseSeat
                 if (ShouldFallbackToOffline(ex))
                 {
                     operationToken.ThrowIfCancellationRequested();
-                    var offlineResult = await VerifyCachedOfflineAsync().ConfigureAwait(false);
+                    var offlineResult = await VerifyCachedOfflineAsync(licenseKey, options.DeviceId).ConfigureAwait(false);
 
                     var cachedLicense = _cache.GetLicense();
                     if (cachedLicense != null && cachedLicense.Key == licenseKey)
@@ -475,6 +523,11 @@ namespace LicenseSeat
                 return LicenseStatus.Pending();
             }
 
+            if (OfflineAuthorityLapsed(validation))
+            {
+                return LicenseStatus.OfflineInvalid("expired");
+            }
+
             if (!validation.Valid)
             {
                 if (validation.Offline)
@@ -520,7 +573,7 @@ namespace LicenseSeat
         {
             ThrowIfDisposed();
             var license = _cache.GetLicense();
-            if (license == null || license.Validation == null)
+            if (license == null || license.Validation == null || OfflineAuthorityLapsed(license.Validation))
             {
                 return EntitlementStatus.NoLicense();
             }
@@ -564,6 +617,7 @@ namespace LicenseSeat
             StopAutoValidation();
             StopHeartbeat();
             StopOfflineRefresh();
+            WithdrawOfflineAuthority();
             _cache.Clear();
             _currentAutoLicenseKey = null;
             _eventBus.Emit(LicenseSeatEvents.SdkReset, null);
@@ -576,6 +630,7 @@ namespace LicenseSeat
         public void PurgeCachedLicense()
         {
             ThrowIfDisposed();
+            WithdrawOfflineAuthority();
             _cache.Clear();
             StopAutoValidation();
             StopHeartbeat();
@@ -807,17 +862,45 @@ namespace LicenseSeat
 
         private async Task SyncOfflineAssetsAsync(string licenseKey, CancellationToken cancellationToken)
         {
-            if (!OfflinePolicyIsEnabled() || cancellationToken.IsCancellationRequested ||
-                Interlocked.Exchange(ref _offlineSyncRunning, 1) != 0)
+            if (!OfflinePolicyIsEnabled() || cancellationToken.IsCancellationRequested)
             {
+                return;
+            }
+
+            if (Interlocked.Exchange(ref _offlineSyncRunning, 1) != 0)
+            {
+                // Don't drop the request: the running sync may belong to a
+                // superseded session and discard its token.
+                Volatile.Write(ref _offlineSyncPending, 1);
                 return;
             }
 
             try
             {
+                do
+                {
+                    Volatile.Write(ref _offlineSyncPending, 0);
+                    await SyncOfflineAssetsOnceAsync(licenseKey, cancellationToken).ConfigureAwait(false);
+                    // A follow-up request is for the current session's license.
+                    licenseKey = _cache.GetLicense()?.Key ?? licenseKey;
+                }
+                while (Volatile.Read(ref _offlineSyncPending) != 0 && !cancellationToken.IsCancellationRequested);
+            }
+            finally
+            {
+                Volatile.Write(ref _offlineSyncRunning, 0);
+            }
+        }
+
+        private async Task SyncOfflineAssetsOnceAsync(string licenseKey, CancellationToken cancellationToken)
+        {
+
+            var generation = Volatile.Read(ref _sessionGeneration);
+            try
+            {
                 var offlineToken = await GetOfflineTokenAsync(licenseKey, cancellationToken).ConfigureAwait(false);
                 var keyId = offlineToken.Signature!.KeyId!;
-                var publicKey = _cache.GetPublicKey(keyId);
+                var publicKey = ResolveTrustedPublicKey(keyId);
                 var fetchedKey = false;
                 if (publicKey == null)
                 {
@@ -832,12 +915,26 @@ namespace LicenseSeat
 
                 cancellationToken.ThrowIfCancellationRequested();
 
-                if (fetchedKey)
+                lock (_lock)
                 {
-                    _cache.SetPublicKey(keyId, publicKey);
-                }
+                    // Reset, deactivation, a rejection or a newer activation
+                    // since this sync started: its token must not be written back.
+                    if (generation != _sessionGeneration)
+                    {
+                        Log("Discarding an offline token fetched for a superseded session.");
+                        return;
+                    }
 
-                _cache.SetOfflineToken(offlineToken);
+                    if (fetchedKey)
+                    {
+                        _cache.SetPublicKey(keyId, publicKey);
+                    }
+
+                    _cache.SetOfflineToken(offlineToken);
+                    // The token was obtained online just now: that is a trusted
+                    // time, and the persisted token is never restored without it.
+                    _cache.SetLastSeenTimestamp(DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+                }
 
                 _eventBus.Emit(LicenseSeatEvents.OfflineLicenseReady, new
                 {
@@ -852,10 +949,6 @@ namespace LicenseSeat
             catch (Exception)
             {
                 Log("Failed to sync offline assets.");
-            }
-            finally
-            {
-                Volatile.Write(ref _offlineSyncRunning, 0);
             }
         }
 
@@ -923,7 +1016,7 @@ namespace LicenseSeat
             return response.PublicKey!;
         }
 
-        private Task<ValidationResult> VerifyCachedOfflineAsync()
+        private Task<ValidationResult> VerifyCachedOfflineAsync(string licenseKey, string? requestedFingerprint)
         {
             if (!OfflinePolicyIsEnabled())
             {
@@ -942,20 +1035,35 @@ namespace LicenseSeat
                 return Task.FromResult(ValidationResult.OfflineResult(false, "no_license"));
             }
 
+            // The token must authorize the license and device that were asked
+            // about, not merely whatever the cache holds.
+            if (!Ed25519Verifier.ConstantTimeEquals(cachedLicense.Key, licenseKey))
+            {
+                return Task.FromResult(ValidationResult.OfflineResult(false, "license_mismatch"));
+            }
+
             var fingerprint = _cache.GetDeviceId();
-            if (string.IsNullOrEmpty(fingerprint))
+            if (string.IsNullOrEmpty(fingerprint) ||
+                (requestedFingerprint != null && !Ed25519Verifier.ConstantTimeEquals(requestedFingerprint, fingerprint)))
             {
                 return Task.FromResult(ValidationResult.OfflineResult(false, "device_mismatch"));
             }
 
             try
             {
-                ValidateOfflineTokenEnvelope(offlineToken, cachedLicense.Key, fingerprint!);
+                ValidateOfflineTokenEnvelope(offlineToken, licenseKey, fingerprint!);
             }
             catch (CryptoException ex)
             {
                 Log("Offline token structure validation failed.");
                 return Task.FromResult(ValidationResult.OfflineResult(false, ex.ErrorCode ?? "token_invalid"));
+            }
+            catch (Exception ex) when (ex is NullReferenceException || ex is InvalidOperationException ||
+                                       ex is ArgumentException || ex is JsonException)
+            {
+                // Malformed restored content must fail closed, never throw.
+                Log("Offline token content is malformed.");
+                return Task.FromResult(ValidationResult.OfflineResult(false, "token_invalid"));
             }
 
             var now = DateTimeOffset.UtcNow;
@@ -973,7 +1081,9 @@ namespace LicenseSeat
                 return Task.FromResult(ValidationResult.OfflineResult(false, "not_yet_valid"));
             }
 
-            if (token.LicenseExpiresAt.HasValue && token.LicenseExpiresAt.Value <= nowUnix)
+            var serverLicenseExpiresAt = _cache.GetServerLicenseExpiry(licenseKey);
+            if ((token.LicenseExpiresAt.HasValue && token.LicenseExpiresAt.Value <= nowUnix) ||
+                (serverLicenseExpiresAt > 0 && serverLicenseExpiresAt <= nowUnix))
             {
                 return Task.FromResult(ValidationResult.OfflineResult(false, "license_expired"));
             }
@@ -985,7 +1095,7 @@ namespace LicenseSeat
             }
 
             var keyId = offlineToken.Signature!.KeyId!;
-            var publicKey = _cache.GetPublicKey(keyId);
+            var publicKey = ResolveTrustedPublicKey(keyId);
             if (string.IsNullOrEmpty(publicKey))
             {
                 return Task.FromResult(ValidationResult.OfflineResult(false, "no_public_key"));
@@ -1008,8 +1118,9 @@ namespace LicenseSeat
                 return Task.FromResult(ValidationResult.OfflineResult(false, ex.ErrorCode ?? "crypto_error"));
             }
 
-            // Clock tamper detection
-            var lastSeenTimestamp = _cache.GetLastSeenTimestamp();
+            // Clock tamper detection, against the freshest persisted floor
+            // (another instance or process may have advanced it).
+            var lastSeenTimestamp = _cache.RefreshLastSeenTimestamp();
             if (lastSeenTimestamp > 0)
             {
                 // If current time is significantly behind the last seen time, clock may have been tampered
@@ -1022,6 +1133,19 @@ namespace LicenseSeat
 
             // Update last seen timestamp for clock tamper detection
             _cache.SetLastSeenTimestamp(nowUnix);
+
+            var authorityUntil = Math.Min(token.Exp, token.Iat + maxOfflineSeconds);
+            if (token.LicenseExpiresAt.HasValue)
+            {
+                authorityUntil = Math.Min(authorityUntil, token.LicenseExpiresAt.Value);
+            }
+
+            if (serverLicenseExpiresAt > 0)
+            {
+                authorityUntil = Math.Min(authorityUntil, serverLicenseExpiresAt);
+            }
+
+            Interlocked.Exchange(ref _offlineAuthorityUntil, authorityUntil);
 
             // Parse entitlements from offline token
             var entitlements = ParseEntitlementsFromOfflineToken(token, nowUnix);
@@ -1357,7 +1481,8 @@ namespace LicenseSeat
             var entitlementKeys = new HashSet<string>(StringComparer.Ordinal);
             foreach (var entitlement in token.Entitlements)
             {
-                if (entitlement.AdditionalData?.Count > 0 ||
+                if (entitlement == null ||
+                    entitlement.AdditionalData?.Count > 0 ||
                     !SecurityValidation.IsSafeIdentifier(entitlement.Key, 1, 100) ||
                     !entitlementKeys.Add(entitlement.Key!) ||
                     (entitlement.ExpiresAt.HasValue && entitlement.ExpiresAt.Value <= 0))
@@ -1503,6 +1628,7 @@ namespace LicenseSeat
 
         private void CompleteDeactivation()
         {
+            WithdrawOfflineAuthority();
             _cache.ClearLicense();
             _cache.ClearOfflineToken();
             StopAutoValidation();
@@ -1521,6 +1647,117 @@ namespace LicenseSeat
             // Never replace an authoritative HTTP response (including 4xx/5xx) or
             // a local protocol/security rejection with cached authorization.
             return error is ApiException apiError && apiError.IsNetworkError;
+        }
+
+        private string ResolveActivationFingerprint(string? requested, out string? derivedFromOsVersion)
+        {
+            derivedFromOsVersion = null;
+            if (requested != null)
+            {
+                return requested;
+            }
+
+            if (_options.DeviceId != null)
+            {
+                return _options.DeviceId;
+            }
+
+            // A device record that exists but cannot be read right now must not
+            // be replaced by a freshly derived fingerprint: that would consume
+            // another seat. Fail; a retry succeeds once the file is readable.
+            if (_cache.DeviceRecordIsUnreadable())
+            {
+                throw new LicenseException(
+                    "The stored device identity could not be read; retry activation shortly.",
+                    "device_identity_unavailable");
+            }
+
+            // The fingerprint this machine already activated with is reused, so
+            // an OS update (which changes the derived value) is not a new device.
+            if (_cache.TryGetPersistedFingerprint(out var persisted, out var persistedOsVersion))
+            {
+                derivedFromOsVersion = persistedOsVersion;
+                return persisted;
+            }
+
+            var inputs = SafeDeviceEnvironment();
+            if (inputs == null)
+            {
+                return DeviceIdentifier.Generate();
+            }
+
+            derivedFromOsVersion = inputs.OsVersion;
+            return DeviceIdentifier.FromInputs(inputs.MachineName, inputs.UserName, inputs.OsVersion);
+        }
+
+        private DeviceInputs? SafeDeviceEnvironment()
+        {
+            try
+            {
+                return _deviceEnvironment();
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        private void WithdrawOfflineAuthority()
+        {
+            lock (_lock)
+            {
+                _sessionGeneration++;
+            }
+
+            Interlocked.Exchange(ref _offlineAuthorityUntil, 0);
+        }
+
+        private bool OfflineTokenNeedsRefresh(string licenseKey)
+        {
+            if (!OfflinePolicyIsEnabled())
+            {
+                return false;
+            }
+
+            var token = _cache.GetOfflineToken();
+            if (token?.Token == null || token.Signature?.KeyId == null)
+            {
+                return true;
+            }
+
+            var nowUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            var refreshSeconds = (long)_options.OfflineLicenseRefreshInterval.TotalSeconds;
+            var maxOfflineSeconds = checked((long)_options.MaxOfflineDays * 24L * 60L * 60L);
+            // The token stops authorizing at the earlier of its exp and the
+            // local MaxOfflineDays grace; refresh well before either.
+            var usableUntil = Math.Min(token.Token.Exp, token.Token.Iat + maxOfflineSeconds);
+            var serverExpiry = _cache.GetServerLicenseExpiry(licenseKey);
+            var tokenExpiry = token.Token.LicenseExpiresAt ?? 0;
+            return ResolveTrustedPublicKey(token.Signature.KeyId) == null ||
+                   nowUnix - token.Token.Iat >= refreshSeconds ||
+                   usableUntil - nowUnix < refreshSeconds ||
+                   serverExpiry != tokenExpiry;
+        }
+
+        private bool OfflineAuthorityLapsed(ValidationResult validation)
+        {
+            return validation.Offline && validation.Valid &&
+                   DateTimeOffset.UtcNow.ToUnixTimeSeconds() >= Interlocked.Read(ref _offlineAuthorityUntil);
+        }
+
+        /// <summary>
+        /// The application-pinned key when its ID matches; otherwise a key
+        /// fetched from the server during this process. Never a key from storage.
+        /// </summary>
+        private string? ResolveTrustedPublicKey(string keyId)
+        {
+            if (_options.SigningKeyId != null &&
+                string.Equals(_options.SigningKeyId, keyId, StringComparison.Ordinal))
+            {
+                return _options.SigningPublicKey;
+            }
+
+            return _cache.GetPublicKey(keyId);
         }
 
         private bool OfflinePolicyIsEnabled()
