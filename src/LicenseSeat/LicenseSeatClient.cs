@@ -256,6 +256,7 @@ namespace LicenseSeat
                 license.LastValidated = DateTimeOffset.UtcNow;
 
                 WithdrawOfflineAuthority();
+                _cache.ClearDenial();
                 _cache.SetLicense(license);
                 _cache.SetDeviceId(deviceId, derivedFromOsVersion);
                 _cache.UpdateValidation(new ValidationResult { Valid = true, Optimistic = true });
@@ -357,6 +358,7 @@ namespace LicenseSeat
 
                 if (result.Valid)
                 {
+                    _cache.ClearDenial();
                     Interlocked.Exchange(ref _offlineAuthorityUntil, 0);
                     Interlocked.Exchange(ref _serverLicenseExpiresAt, response.License?.ExpiresAt == null
                         ? 0
@@ -367,6 +369,20 @@ namespace LicenseSeat
                     {
                         _ = SyncOfflineAssetsAsync(licenseKey, _lifetimeToken);
                     }
+                }
+                else if (IsAuthoritativeDenial(result.Code))
+                {
+                    // Not entitled (for this version/product/mode) is the
+                    // server's current decision, not a revocation: keep the
+                    // grant, but record the denial so no later outage or
+                    // relaunch lets the offline grant override it.
+                    WithdrawOfflineAuthority();
+                    _cache.SetDenial(licenseKey, result.Code!.ToLowerInvariant());
+                    _eventBus.Emit(LicenseSeatEvents.ValidationFailed, result);
+                    StopAutoValidation();
+                    StopHeartbeat();
+                    StopOfflineRefresh();
+                    _currentAutoLicenseKey = null;
                 }
                 else
                 {
@@ -395,6 +411,18 @@ namespace LicenseSeat
                         Error = ex,
                         Cached = _cache.GetLicense() != null
                     });
+                }
+
+                if (ex is ApiException deniedError && deniedError.StatusCode != 0 && IsAuthoritativeDenial(deniedError.Code))
+                {
+                    var code = deniedError.Code!.ToLowerInvariant();
+                    WithdrawOfflineAuthority();
+                    _cache.SetDenial(licenseKey, code);
+                    var cachedLicense = _cache.GetLicense();
+                    if (cachedLicense != null && cachedLicense.Key == licenseKey)
+                    {
+                        _cache.UpdateValidation(new ValidationResult { Valid = false, Code = code, Message = deniedError.Message });
+                    }
                 }
 
                 // Check for offline fallback
@@ -978,6 +1006,14 @@ namespace LicenseSeat
             if (!OfflinePolicyIsEnabled())
             {
                 return Task.FromResult(ValidationResult.OfflineResult(false, "offline_disabled"));
+            }
+
+            // The server's latest authoritative denial is the current decision;
+            // the offline grant never overrides it.
+            var denial = _cache.GetDenial(licenseKey);
+            if (denial != null)
+            {
+                return Task.FromResult(ValidationResult.OfflineResult(false, denial));
             }
 
             var offlineToken = _cache.GetOfflineToken();
@@ -1666,6 +1702,24 @@ namespace LicenseSeat
 
             Interlocked.Exchange(ref _offlineAuthorityUntil, 0);
             Interlocked.Exchange(ref _serverLicenseExpiresAt, 0);
+        }
+
+        private static readonly HashSet<string> AuthoritativeDenialCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "version_not_entitled",
+            "not_entitled",
+            "product_mismatch",
+            "floating_not_implemented",
+            "named_user_not_implemented"
+        };
+
+        /// <summary>
+        /// Codes with which the server authoritatively denies this license here
+        /// and now (cross-SDK contract; matched case-insensitively).
+        /// </summary>
+        internal static bool IsAuthoritativeDenial(string? code)
+        {
+            return code != null && AuthoritativeDenialCodes.Contains(code);
         }
 
         private bool OfflineTokenNeedsRefresh()

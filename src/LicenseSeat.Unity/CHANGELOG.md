@@ -41,6 +41,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   token, so it cannot authorize offline use after a revocation.
 - Offline fallback is bound to the requested license key and device, not
   whatever the cache holds.
+- An authoritative denial (`version_not_entitled`, `not_entitled`,
+  `product_mismatch`, `floating_not_implemented`, `named_user_not_implemented`,
+  case-insensitive; as `valid: false` or a thrown API error) is recorded as the
+  current decision and persisted with the store. A later outage or relaunch no
+  longer lets the offline grant override it; the grant itself is kept, and the
+  next successful online validation or activation clears the denial. In 0.5.0
+  a `valid: false` denial followed by a network failure returned a valid
+  offline result.
 - `GetStatus()` / `HasEntitlement()` stop reporting offline access once the
   verified token's window (exp, license expiry, `MaxOfflineDays`) closes.
 - Successful online validation refreshes a stale offline token (older than

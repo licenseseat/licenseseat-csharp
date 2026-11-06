@@ -50,6 +50,7 @@ namespace LicenseSeat
         internal const string OfflineTokenEntry = "offline_token";
         internal const string DeviceEntry = "device";
         internal const string LastSeenEntry = "last_seen";
+        internal const string DenialEntry = "denial";
         private const int RecordVersion = 1;
         private const string Tombstone = "{\"deleted\":true}";
         private const int MaxEntryBytes = 1024 * 1024;
@@ -77,6 +78,7 @@ namespace LicenseSeat
         private bool _deviceRecordUnreadable;
         private readonly Dictionary<string, string> _publicKeys = new Dictionary<string, string>(StringComparer.Ordinal);
         private long _lastSeenTimestamp;
+        private DenialRecord? _denial;
 
         /// <summary>
         /// Creates a new in-memory license cache.
@@ -149,14 +151,61 @@ namespace LicenseSeat
             }
         }
 
-        /// <summary>Clears the cached license.</summary>
+        /// <summary>Clears the cached license (and any denial recorded for it).</summary>
         public void ClearLicense()
         {
             lock (_lock)
             {
                 _license = null;
                 Remove(LicenseEntry);
+                ClearDenialLocked();
             }
+        }
+
+        /// <summary>
+        /// Records the server's latest authoritative denial for a license. It is
+        /// the current decision: offline fallback must not override it, in this
+        /// process or after a relaunch, until an online success clears it. The
+        /// offline grant itself is kept.
+        /// </summary>
+        public void SetDenial(string licenseKey, string code)
+        {
+            lock (_lock)
+            {
+                _denial = new DenialRecord { Version = RecordVersion, LicenseKey = licenseKey, Code = code };
+                Persist(DenialEntry, JsonSerializer.Serialize(_denial, JsonOptions));
+            }
+        }
+
+        /// <summary>The recorded denial code for a license, or <c>null</c>.</summary>
+        public string? GetDenial(string licenseKey)
+        {
+            lock (_lock)
+            {
+                return _denial != null && string.Equals(_denial.LicenseKey, licenseKey, StringComparison.Ordinal)
+                    ? _denial.Code
+                    : null;
+            }
+        }
+
+        /// <summary>Clears a recorded denial after an online success.</summary>
+        public void ClearDenial()
+        {
+            lock (_lock)
+            {
+                ClearDenialLocked();
+            }
+        }
+
+        private void ClearDenialLocked()
+        {
+            if (_denial == null)
+            {
+                return;
+            }
+
+            _denial = null;
+            Remove(DenialEntry);
         }
 
         /// <summary>Updates validation state using defensive copies.</summary>
@@ -389,6 +438,7 @@ namespace LicenseSeat
                 _publicKeys.Clear();
                 Remove(LicenseEntry);
                 Remove(OfflineTokenEntry);
+                ClearDenialLocked();
             }
         }
 
@@ -432,6 +482,20 @@ namespace LicenseSeat
                     DeviceId = trusted,
                     ActivatedAt = record.ActivatedAt
                 };
+
+                var denial = Load<DenialRecord>(DenialEntry, out var denialUnreadable);
+                if (denialUnreadable)
+                {
+                    // Cannot tell whether the server's last word was a denial:
+                    // fail closed for offline use until an online validation.
+                    _denial = new DenialRecord { Version = RecordVersion, LicenseKey = record.Key, Code = "denial_state_unreadable" };
+                }
+                else if (denial != null && denial.Version == RecordVersion &&
+                         string.Equals(denial.LicenseKey, record.Key, StringComparison.Ordinal) &&
+                         SecurityValidation.IsSafeIdentifier(denial.Code, 1, 100))
+                {
+                    _denial = denial;
+                }
 
                 if (!hasFloor)
                 {
@@ -619,6 +683,15 @@ namespace LicenseSeat
             public string? DeviceId { get; set; }
 
             public DateTimeOffset? ActivatedAt { get; set; }
+        }
+
+        private sealed class DenialRecord
+        {
+            public int Version { get; set; }
+
+            public string? LicenseKey { get; set; }
+
+            public string? Code { get; set; }
         }
 
         private sealed class LastSeenRecord
