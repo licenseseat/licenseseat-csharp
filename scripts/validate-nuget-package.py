@@ -12,10 +12,10 @@ import zipfile
 
 
 EXPECTED_DEPENDENCIES = {
-    "BouncyCastle.Cryptography": "2.6.2",
-    "Microsoft.Extensions.DependencyInjection.Abstractions": "10.0.10",
-    "Microsoft.Extensions.Options": "10.0.10",
-    "System.Text.Json": "10.0.10",
+    "BouncyCastle.Cryptography": "2.7.0",
+    "Microsoft.Extensions.DependencyInjection.Abstractions": "10.0.14",
+    "Microsoft.Extensions.Options": "10.0.14",
+    "System.Text.Json": "10.0.14",
 }
 
 EXPECTED_FILES = {
