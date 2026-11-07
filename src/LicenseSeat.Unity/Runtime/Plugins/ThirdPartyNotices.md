@@ -5,12 +5,12 @@ exact expected file hashes are recorded in `DEPENDENCIES.sha256`.
 
 | Package | Version | Copyright / author | Source | License |
 | --- | --- | --- | --- | --- |
-| BouncyCastle.Cryptography | 2.6.2 | Copyright (c) 2000-2025 The Legion of the Bouncy Castle Inc. | https://github.com/bcgit/bc-csharp/tree/b4f2f6ad76bcd1f11f365ee50cc7447fbce79077 | MIT |
-| Microsoft.Bcl.AsyncInterfaces | 10.0.10 | Microsoft and .NET contributors | https://github.com/dotnet/dotnet/tree/f7d90799ce4ef09a0bb257852a57248d2a8fb8dd | MIT |
-| System.IO.Pipelines | 10.0.10 | Microsoft and .NET contributors | https://github.com/dotnet/dotnet/tree/f7d90799ce4ef09a0bb257852a57248d2a8fb8dd | MIT |
+| BouncyCastle.Cryptography | 2.7.0 | Copyright (c) 2000-2025 The Legion of the Bouncy Castle Inc. | https://github.com/bcgit/bc-csharp/tree/4007498b13582d90ee1eda5d9920c324428b98b3 | MIT |
+| Microsoft.Bcl.AsyncInterfaces | 10.0.14 | Microsoft and .NET contributors | https://github.com/dotnet/dotnet/tree/0427b9abbead3fa64c6655eb4290c537397131fa | MIT |
+| System.IO.Pipelines | 10.0.14 | Microsoft and .NET contributors | https://github.com/dotnet/dotnet/tree/0427b9abbead3fa64c6655eb4290c537397131fa | MIT |
 | System.Runtime.CompilerServices.Unsafe | 6.1.2 | Microsoft and .NET contributors | https://github.com/dotnet/maintenance-packages/tree/f62ca0009b038cab4725a720f386623a969d73ad | MIT |
-| System.Text.Encodings.Web | 10.0.10 | Microsoft and .NET contributors | https://github.com/dotnet/dotnet/tree/f7d90799ce4ef09a0bb257852a57248d2a8fb8dd | MIT |
-| System.Text.Json | 10.0.10 | Microsoft and .NET contributors | https://github.com/dotnet/dotnet/tree/f7d90799ce4ef09a0bb257852a57248d2a8fb8dd | MIT |
+| System.Text.Encodings.Web | 10.0.14 | Microsoft and .NET contributors | https://github.com/dotnet/dotnet/tree/0427b9abbead3fa64c6655eb4290c537397131fa | MIT |
+| System.Text.Json | 10.0.14 | Microsoft and .NET contributors | https://github.com/dotnet/dotnet/tree/0427b9abbead3fa64c6655eb4290c537397131fa | MIT |
 
 The Microsoft/.NET packages share the upstream notices reproduced verbatim in
 `DOTNET-THIRD-PARTY-NOTICES.txt`.
